@@ -33,14 +33,15 @@ def denorm_all_bands(
     std: list[float],
 ) -> torch.Tensor:
     """
-    Undo per-band HLS normalization. Returns tensor in [0, 1].
+    Undo per-band HLS normalization and scale to [0, 1].
 
-    Args:
-        frame_chw: (C, H, W) normalized tensor
+    mean/std are in raw HLS int16 reflectance units (0-10000 scale).
+    After denorm we divide by 10000 to get true [0, 1] reflectance.
     """
     m = torch.tensor(mean, dtype=torch.float32).view(-1, 1, 1)
     s = torch.tensor(std,  dtype=torch.float32).view(-1, 1, 1)
-    return ((frame_chw.cpu() * s) + m).clamp(0, 1)
+    denormed = (frame_chw.cpu() * s) + m
+    return (denormed / 10000.0).clamp(0, 1)
 
 
 def evaluate_reconstruction(

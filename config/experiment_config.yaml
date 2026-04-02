@@ -1,63 +1,50 @@
 data:
-  hls_root: "/path/to/hls_tiles"
   patch_size: 16
-  img_size: 224
+  img_size: 448
   num_bands: 6
 
-  # Each entry is one tile — a directory with T0.tif, T1.tif, ... files
-  # OR a list of explicit HLS filenames inside base_dir/examples/
   tiles:
     - id: "tile_mexico_2018"
+      base_dir: "/home/myid/syv35378/prithvi_repo"
       files:
         - "Mexico_HLS.S30.T13REM.2018026T173609.v2.0_cropped.tif"
         - "Mexico_HLS.S30.T13REM.2018106T172859.v2.0_cropped.tif"
         - "Mexico_HLS.S30.T13REM.2018201T172901.v2.0_cropped.tif"
         - "Mexico_HLS.S30.T13REM.2018266T173029.v2.0_cropped.tif"
-        - "Mexico_HLS.S30.T13REM.2018330T172851.v2.0_cropped.tif"
-        - "Mexico_HLS.S30.T13REM.2018361T173041.v2.0_cropped.tif"
-      # Add more tiles here for statistical reliability
 
 model:
-  base_dir: "/path/to/prithvi_repo"   # contains config.json, inference.py, etc.
+  device: "cuda"
   backbones:
     - name: "tiny"
+      base_dir: "/home/myid/syv35378/prithvi_tiny"
       checkpoint: "Prithvi_EO_V2_tiny_TL.pt"
     - name: "100M"
-      checkpoint: "Prithvi_EO_V2_100M.pt"
+      base_dir: "/home/myid/syv35378/prithvi_100M"
+      checkpoint: "Prithvi_EO_V2_100M_TL.pt"
     - name: "300M"
-      checkpoint: "Prithvi_EO_V2_300M.pt"
+      base_dir: "/home/myid/syv35378/prithvi_repo"
+      checkpoint: "Prithvi_EO_V2_300M_TL.pt"
     - name: "600M"
-      checkpoint: "Prithvi_EO_V2_600M.pt"
-  device: "cuda"
+      base_dir: "/home/myid/syv35378/prithvi_600M"
+      checkpoint: "Prithvi_EO_V2_600M_TL.pt"
 
 experiment:
-  # Dim 2: which frame to mask
   mask_positions:
-    - "middle"    # mask the middle frame of the sequence
-    - "endpoint"  # mask the last frame of the sequence
+    - "middle"
+    - "endpoint"
 
-  # Dim 3: how many frames to use from each tile's file list
-  # Must be <= len(tile.files) for every tile
-  sequence_lengths: [3, 4, 6]
+  sequence_lengths: [3, 4]
 
-  # Dim 4: temporal gap patterns
-  # "regular" = evenly-spaced subset of files
-  # "irregular" = unevenly-spaced subset (clustered at start, sparse at end)
   gap_types:
     - name: "regular"
-      # For each sequence_length, which file indices to pick (0-based)
-      # These produce ~80-day even spacing from the 6-file Mexico sequence
       index_maps:
-        3: [0, 2, 5]
-        4: [0, 1, 3, 5]
-        6: [0, 1, 2, 3, 4, 5]
+        3: [0, 1, 3]
+        4: [0, 1, 2, 3]
     - name: "irregular"
-      # Clustered: dense at start, big gap at end
       index_maps:
-        3: [0, 1, 5]
-        4: [0, 1, 2, 5]
-        6: [0, 1, 2, 3, 4, 5]   # same as regular at 6 — irregular only meaningful at 3,4
+        3: [0, 1, 3]
+        4: [0, 1, 2, 3]
 
-  output_dir: "outputs"
-  save_plots: true          # save per-run comparison PNG
-  save_plots_limit: 10      # stop saving plots after this many (disk space)
+  output_dir: "/home/myid/syv35378/Prithvi-Sandbox/outputs"
+  save_plots: true
+  save_plots_limit: 10

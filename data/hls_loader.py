@@ -43,25 +43,26 @@ def load_sample_from_inference_module(
     std: list[float],
     device: torch.device,
 ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, dict]:
-    """
-    Thin wrapper around Prithvi's own load_example() function.
+    import importlib.util, sys
 
-    Inserts base_dir into sys.path so the local inference.py is importable,
-    then delegates to it. This keeps your patching logic in one place.
+    base_dir = Path(base_dir)
+    base_str = str(base_dir)
 
-    Returns:
-        x:               (1, C, T, H, W) float32 on device
-        temporal_coords: (1, T, 3) float32 on device
-        location_coords: (1, 2) float32 on device
-        meta_data:       dict from load_example
-    """
-    if str(base_dir) not in sys.path:
-        sys.path.insert(0, str(base_dir))
+    # Add backbone dir to path so prithvi_mae.py resolves when inference.py loads
+    if base_str not in sys.path:
+        sys.path.insert(0, base_str)
 
-    from inference import load_example  # type: ignore
+    # Load Prithvi's inference.py directly by file path
+    inference_path = base_dir / "inference.py"
+    spec = importlib.util.spec_from_file_location(
+        "prithvi_inference", inference_path
+    )
+    prithvi_inference = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(prithvi_inference)
+    load_example = prithvi_inference.load_example
 
     input_data, temporal_coords, location_coords, meta_data = load_example(
-        file_paths=[str(Path(base_dir) / "examples" / f) for f in file_paths],
+        file_paths=[str(base_dir / "examples" / f) for f in file_paths],
         mean=mean,
         std=std,
     )

@@ -100,19 +100,16 @@ def load_model(
     num_frames: int,
     device: torch.device,
 ):
-    """
-    Load a Prithvi backbone from a local checkpoint.
+    import importlib.util, yaml
 
-    Returns:
-        model, bands, mean, std
-    """
-    if str(base_dir) not in sys.path:
-        sys.path.insert(0, str(base_dir))
+    # Load prithvi_mae.py directly by path to avoid any import collisions
+    mae_path = Path(base_dir) / "prithvi_mae.py"
+    spec = importlib.util.spec_from_file_location("prithvi_mae", mae_path)
+    prithvi_mae = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(prithvi_mae)
+    PrithviMAE = prithvi_mae.PrithviMAE
 
-    from prithvi_mae import PrithviMAE  # type: ignore
-    import yaml
-
-    with (base_dir / "config.json").open() as f:
+    with (Path(base_dir) / "config.json").open() as f:
         config = yaml.safe_load(f)["pretrained_cfg"]
 
     bands = config["bands"]
@@ -122,7 +119,7 @@ def load_model(
 
     model = PrithviMAE(**config).to(device)
 
-    checkpoint_path = base_dir / checkpoint_filename
+    checkpoint_path = Path(base_dir) / checkpoint_filename
     try:
         state_dict = torch.load(
             checkpoint_path, weights_only=True, map_location=device
