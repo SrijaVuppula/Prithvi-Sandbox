@@ -1,3 +1,58 @@
+"""
+Phase 1 baseline sweep — all four experimental dimensions.
+
+Usage:
+    python scripts/run_baselines.py --config config/experiment_config.yaml
+"""
+
+import argparse
+import csv
+import sys
+import yaml
+import torch
+from pathlib import Path
+from itertools import product
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+
+from data.hls_loader import select_files_for_condition, load_sample_from_inference_module
+from masking.temporal_masker import get_masked_frame_index
+from metrics.evaluate import evaluate_reconstruction, compute_gap_days
+from logging_utils.experiment_logger import ExperimentLogger
+from inference.runner import apply_all_patches, load_model, run_one_condition
+
+
+def save_plot(out_path: Path, x_cpu, rec_img, frame_idx, bands, mean, std):
+    import matplotlib
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+    import numpy as np
+
+    def to_rgb(tensor_cthw, t):
+        rgb_idx = [bands.index("B04"), bands.index("B03"), bands.index("B02")]
+        mean_t = torch.tensor(np.asarray(mean)[:, None, None], dtype=torch.float32)
+        std_t  = torch.tensor(np.asarray(std)[:, None, None],  dtype=torch.float32)
+        img = tensor_cthw[:, t].clone() * std_t + mean_t
+        return (img[rgb_idx] / 10000.0).clamp(0, 1).permute(1, 2, 0).numpy()
+
+    n = x_cpu.shape[2]
+    fig, axes = plt.subplots(2, n, figsize=(4 * n, 8))
+    if n == 1:
+        axes = axes.reshape(2, 1)
+    for t in range(n):
+        axes[0, t].imshow(to_rgb(x_cpu[0], t))
+        axes[0, t].set_title(f"original T{t}")
+        axes[0, t].axis("off")
+        label = f"recon T{t}" + (" <-- masked" if t == frame_idx else "")
+        axes[1, t].imshow(to_rgb(rec_img[0], t))
+        axes[1, t].set_title(label)
+        axes[1, t].axis("off")
+    plt.tight_layout()
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    fig.savefig(out_path, dpi=120, bbox_inches="tight")
+    plt.close(fig)
+
+
 def main(cfg: dict):
     device     = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     patch_size = cfg["data"]["patch_size"]
@@ -11,7 +66,6 @@ def main(cfg: dict):
     # resume support
     completed_runs = set()
     if logger.csv_path.exists():
-        import csv
         with open(logger.csv_path) as f:
             for row in csv.DictReader(f):
                 completed_runs.add((
@@ -32,16 +86,16 @@ def main(cfg: dict):
     done  = 0
 
     for tile_cfg in tiles:
-        tile_id      = tile_cfg["id"]
-        tile_base    = Path(tile_cfg["base_dir"])
-        all_files    = tile_cfg["files"]
+        tile_id   = tile_cfg["id"]
+        tile_base = Path(tile_cfg["base_dir"])
+        all_files = tile_cfg["files"]
 
         for bb, pos, n_frames, gap_cfg in product(
             backbones, positions, seq_lengths, gap_types
         ):
             done += 1
-            gap_name  = gap_cfg["name"]
-            bb_base   = Path(bb["base_dir"])
+            gap_name = gap_cfg["name"]
+            bb_base  = Path(bb["base_dir"])
 
             # resume check
             condition_key = (tile_id, bb["name"], pos, str(n_frames), gap_name)
@@ -52,10 +106,8 @@ def main(cfg: dict):
             print(f"\n[{done}/{total}] backbone={bb['name']} pos={pos} "
                   f"T={n_frames} gap={gap_name} tile={tile_id}")
 
-            # patch this backbone's source files
             apply_all_patches(bb_base)
 
-            # select files for this condition
             try:
                 selected_files = select_files_for_condition(
                     all_files, n_frames, gap_cfg
@@ -66,7 +118,6 @@ def main(cfg: dict):
 
             gap_days = compute_gap_days(selected_files)
 
-            # load model
             try:
                 model, bands, mean, std = load_model(
                     base_dir=bb_base,
@@ -78,7 +129,6 @@ def main(cfg: dict):
                 print(f"  ERROR loading model: {e}")
                 continue
 
-            # load data
             try:
                 x, temporal_coords, location_coords, _ = \
                     load_sample_from_inference_module(
@@ -94,8 +144,8 @@ def main(cfg: dict):
                 torch.cuda.empty_cache()
                 continue
 
-            # run inference
             frame_idx = get_masked_frame_index(pos, n_frames)
+
             try:
                 result = run_one_condition(
                     model=model,
@@ -112,12 +162,10 @@ def main(cfg: dict):
                 torch.cuda.empty_cache()
                 continue
 
-            # metrics
             pred_frame = result["rec_img"][0, :, frame_idx]
             gt_frame   = result["x_cpu"][0, :, frame_idx]
             metrics    = evaluate_reconstruction(pred_frame, gt_frame, mean, std)
 
-            # log
             run_id = logger.log(
                 backbone=bb["name"],
                 mask_position=pos,
@@ -132,7 +180,6 @@ def main(cfg: dict):
                 checkpoint=bb["checkpoint"],
             )
 
-            # plot
             if save_plots and plot_count < plot_limit:
                 plot_path = output_dir / "plots" / f"{run_id}.png"
                 save_plot(plot_path, result["x_cpu"], result["rec_img"],
@@ -144,3 +191,12 @@ def main(cfg: dict):
 
     print(f"\nSweep complete. {done} conditions run.")
     print(f"Results: {output_dir / 'results.csv'}")
+
+
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--config", default="config/experiment_config.yaml")
+    args = parser.parse_args()
+    with open(args.config) as f:
+        cfg = yaml.safe_load(f)
+    main(cfg)

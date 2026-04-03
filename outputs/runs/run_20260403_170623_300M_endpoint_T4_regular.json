@@ -1,0 +1,17 @@
+{
+  "run_id": "run_20260403_170623_300M_endpoint_T4_regular",
+  "timestamp": "2026-04-03T17:06:23.975305",
+  "backbone": "300M",
+  "mask_position": "endpoint",
+  "n_frames": 4,
+  "gap_type": "regular",
+  "tile_id": "tile_mexico_2018",
+  "masked_frame_idx": 3,
+  "gap_days": "[80, 95, 65]",
+  "mae": 0.051657,
+  "psnr": 23.5338,
+  "ssim": 0.758764,
+  "loss": 0.250738,
+  "mask_ratio": 0.25,
+  "checkpoint": "Prithvi_EO_V2_300M_TL.pt"
+}

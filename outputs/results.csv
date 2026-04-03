@@ -1,0 +1,25 @@
+run_id,timestamp,backbone,mask_position,n_frames,gap_type,tile_id,masked_frame_idx,gap_days,mae,psnr,ssim,loss,mask_ratio,checkpoint
+run_20260403_170457_tiny_middle_T3_regular,2026-04-03T17:04:57.534452,tiny,middle,3,regular,tile_mexico_2018,1,"[80, 160]",0.084959,19.432,0.71076,0.56584,0.3333,Prithvi_EO_V2_tiny_TL.pt
+run_20260403_170459_tiny_middle_T3_irregular,2026-04-03T17:04:59.741003,tiny,middle,3,irregular,tile_mexico_2018,1,"[80, 160]",0.084959,19.432,0.71076,0.56584,0.3333,Prithvi_EO_V2_tiny_TL.pt
+run_20260403_170502_tiny_middle_T4_regular,2026-04-03T17:05:02.066182,tiny,middle,4,regular,tile_mexico_2018,1,"[80, 95, 65]",0.077848,20.2581,0.71772,0.577776,0.25,Prithvi_EO_V2_tiny_TL.pt
+run_20260403_170503_tiny_middle_T4_irregular,2026-04-03T17:05:03.951426,tiny,middle,4,irregular,tile_mexico_2018,1,"[80, 95, 65]",0.077848,20.2581,0.71772,0.577776,0.25,Prithvi_EO_V2_tiny_TL.pt
+run_20260403_170505_tiny_endpoint_T3_regular,2026-04-03T17:05:05.753842,tiny,endpoint,3,regular,tile_mexico_2018,2,"[80, 160]",0.054172,22.8331,0.688196,0.171984,0.3333,Prithvi_EO_V2_tiny_TL.pt
+run_20260403_170507_tiny_endpoint_T3_irregular,2026-04-03T17:05:07.182908,tiny,endpoint,3,irregular,tile_mexico_2018,2,"[80, 160]",0.054172,22.8331,0.688196,0.171984,0.3333,Prithvi_EO_V2_tiny_TL.pt
+run_20260403_170509_tiny_endpoint_T4_regular,2026-04-03T17:05:09.135996,tiny,endpoint,4,regular,tile_mexico_2018,3,"[80, 95, 65]",0.067079,21.4226,0.672588,0.352156,0.25,Prithvi_EO_V2_tiny_TL.pt
+run_20260403_170510_tiny_endpoint_T4_irregular,2026-04-03T17:05:10.905596,tiny,endpoint,4,irregular,tile_mexico_2018,3,"[80, 95, 65]",0.067079,21.4226,0.672588,0.352156,0.25,Prithvi_EO_V2_tiny_TL.pt
+run_20260403_170513_100M_middle_T3_regular,2026-04-03T17:05:13.539764,100M,middle,3,regular,tile_mexico_2018,1,"[80, 160]",0.076609,20.9777,0.754114,0.441597,0.3333,Prithvi_EO_V2_100M_TL.pt
+run_20260403_170516_100M_middle_T3_irregular,2026-04-03T17:05:16.478801,100M,middle,3,irregular,tile_mexico_2018,1,"[80, 160]",0.076609,20.9777,0.754114,0.441597,0.3333,Prithvi_EO_V2_100M_TL.pt
+run_20260403_170520_100M_middle_T4_regular,2026-04-03T17:05:20.720210,100M,middle,4,regular,tile_mexico_2018,1,"[80, 95, 65]",0.05155,23.7734,0.806786,0.221966,0.25,Prithvi_EO_V2_100M_TL.pt
+run_20260403_170523_100M_middle_T4_irregular,2026-04-03T17:05:23.268091,100M,middle,4,irregular,tile_mexico_2018,1,"[80, 95, 65]",0.05155,23.7734,0.806786,0.221966,0.25,Prithvi_EO_V2_100M_TL.pt
+run_20260403_170525_100M_endpoint_T3_regular,2026-04-03T17:05:25.654378,100M,endpoint,3,regular,tile_mexico_2018,2,"[80, 160]",0.05944,22.1764,0.718416,0.331398,0.3333,Prithvi_EO_V2_100M_TL.pt
+run_20260403_170527_100M_endpoint_T3_irregular,2026-04-03T17:05:27.950244,100M,endpoint,3,irregular,tile_mexico_2018,2,"[80, 160]",0.05944,22.1764,0.718416,0.331398,0.3333,Prithvi_EO_V2_100M_TL.pt
+run_20260403_170530_100M_endpoint_T4_regular,2026-04-03T17:05:30.411022,100M,endpoint,4,regular,tile_mexico_2018,3,"[80, 95, 65]",0.044964,24.6253,0.750108,0.176022,0.25,Prithvi_EO_V2_100M_TL.pt
+run_20260403_170532_100M_endpoint_T4_irregular,2026-04-03T17:05:32.853995,100M,endpoint,4,irregular,tile_mexico_2018,3,"[80, 95, 65]",0.044964,24.6253,0.750108,0.176022,0.25,Prithvi_EO_V2_100M_TL.pt
+run_20260403_170545_300M_middle_T3_regular,2026-04-03T17:05:45.344122,300M,middle,3,regular,tile_mexico_2018,1,"[80, 160]",0.042554,25.1004,0.825274,0.166562,0.3333,Prithvi_EO_V2_300M_TL.pt
+run_20260403_170552_300M_middle_T3_irregular,2026-04-03T17:05:52.948529,300M,middle,3,irregular,tile_mexico_2018,1,"[80, 160]",0.042554,25.1004,0.825274,0.166562,0.3333,Prithvi_EO_V2_300M_TL.pt
+run_20260403_170559_300M_middle_T4_regular,2026-04-03T17:05:59.135905,300M,middle,4,regular,tile_mexico_2018,1,"[80, 95, 65]",0.026956,27.0386,0.841101,0.098904,0.25,Prithvi_EO_V2_300M_TL.pt
+run_20260403_170605_300M_middle_T4_irregular,2026-04-03T17:06:05.217554,300M,middle,4,irregular,tile_mexico_2018,1,"[80, 95, 65]",0.026956,27.0386,0.841101,0.098904,0.25,Prithvi_EO_V2_300M_TL.pt
+run_20260403_170611_300M_endpoint_T3_regular,2026-04-03T17:06:11.135516,300M,endpoint,3,regular,tile_mexico_2018,2,"[80, 160]",0.055329,23.0449,0.740472,0.276976,0.3333,Prithvi_EO_V2_300M_TL.pt
+run_20260403_170617_300M_endpoint_T3_irregular,2026-04-03T17:06:17.254102,300M,endpoint,3,irregular,tile_mexico_2018,2,"[80, 160]",0.055329,23.0449,0.740472,0.276976,0.3333,Prithvi_EO_V2_300M_TL.pt
+run_20260403_170623_300M_endpoint_T4_regular,2026-04-03T17:06:23.975305,300M,endpoint,4,regular,tile_mexico_2018,3,"[80, 95, 65]",0.051657,23.5338,0.758764,0.250738,0.25,Prithvi_EO_V2_300M_TL.pt
+run_20260403_170630_300M_endpoint_T4_irregular,2026-04-03T17:06:30.003508,300M,endpoint,4,irregular,tile_mexico_2018,3,"[80, 95, 65]",0.051657,23.5338,0.758764,0.250738,0.25,Prithvi_EO_V2_300M_TL.pt
