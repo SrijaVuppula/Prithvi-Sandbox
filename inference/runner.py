@@ -136,7 +136,10 @@ def load_model(
     model.load_state_dict(state_dict, strict=True)
     model.eval()
     print(f"  Loaded {checkpoint_filename} ({num_frames} frames) on {device}")
-    return model, bands, mean, std
+    patch_size = config.get("patch_size", [1, 16, 16])
+    spatial_patch = patch_size[1] if isinstance(patch_size, list) else patch_size
+    print(f"  Loaded {checkpoint_filename} ({num_frames} frames) patch={spatial_patch} on {device}")
+    return model, bands, mean, std, spatial_patch
 
 
 # ── Forward pass ──────────────────────────────────────────────────────────────

@@ -1,0 +1,17 @@
+{
+  "run_id": "run_20260403_172125_tiny_endpoint_T4_regular",
+  "timestamp": "2026-04-03T17:21:25.831315",
+  "backbone": "tiny",
+  "mask_position": "endpoint",
+  "n_frames": 4,
+  "gap_type": "regular",
+  "tile_id": "tile_mexico_2018",
+  "masked_frame_idx": 3,
+  "gap_days": "[80, 95, 65]",
+  "mae": 0.067079,
+  "psnr": 21.4226,
+  "ssim": 0.672588,
+  "loss": 0.352156,
+  "mask_ratio": 0.25,
+  "checkpoint": "Prithvi_EO_V2_tiny_TL.pt"
+}

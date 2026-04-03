@@ -119,7 +119,7 @@ def main(cfg: dict):
             gap_days = compute_gap_days(selected_files)
 
             try:
-                model, bands, mean, std = load_model(
+                model, bands, mean, std, patch_size = load_model(
                     base_dir=bb_base,
                     checkpoint_filename=bb["checkpoint"],
                     num_frames=n_frames,

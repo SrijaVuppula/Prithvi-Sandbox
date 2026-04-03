@@ -36,14 +36,14 @@ experiment:
   sequence_lengths: [3, 4]
 
   gap_types:
-    - name: "regular"
-      index_maps:
-        3: [0, 1, 3]
-        4: [0, 1, 2, 3]
-    - name: "irregular"
-      index_maps:
-        3: [0, 1, 3]
-        4: [0, 1, 2, 3]
+  - name: "regular"
+    index_maps:
+      3: [0, 1, 3]      # days: 0, 80, 255  — even spacing
+      4: [0, 1, 2, 3]   # days: 0, 80, 175, 240
+  - name: "irregular"
+    index_maps:
+      3: [0, 1, 3]      # same for T=3 (only 4 files, limited options)
+      4: [0, 1, 2, 3]   # same for T=4
 
   output_dir: "/home/myid/syv35378/Prithvi-Sandbox/outputs"
   save_plots: true
