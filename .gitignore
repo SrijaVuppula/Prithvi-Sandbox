@@ -1,1 +1,5 @@
 multi_tile_generalization/training_chips/
+__pycache__/
+*.pyc
+*.pyo
+baseline_study/outputs_log.txt
