@@ -1,0 +1,10 @@
+{
+  "backbone": "tiny",
+  "mask_ratio": 0.6,
+  "mae": 0.015482,
+  "psnr": 29.4388,
+  "ssim": 0.851886,
+  "masked_mae": 0.0166,
+  "masked_psnr": 29.136,
+  "masked_ssim": 0.863977
+}

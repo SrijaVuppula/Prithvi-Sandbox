@@ -1,0 +1,10 @@
+{
+  "backbone": "300M",
+  "mask_ratio": 0.2,
+  "mae": 0.004771,
+  "psnr": 35.0629,
+  "ssim": 0.949334,
+  "masked_mae": 0.00997,
+  "masked_psnr": 31.8624,
+  "masked_ssim": 0.922233
+}
