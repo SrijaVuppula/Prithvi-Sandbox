@@ -4,7 +4,7 @@ data:
   num_bands: 6
   tiles:
     - id: "tile_mexico_2018"
-      base_dir: "/home/myid/syv35378/prithvi_repo"
+      base_dir: "/home/myid/syv35378/Prithvi/prithvi_repo"
       files:
         - "Mexico_HLS.S30.T13REM.2018026T173609.v2.0_cropped.tif"
         - "Mexico_HLS.S30.T13REM.2018106T172859.v2.0_cropped.tif"
@@ -15,18 +15,21 @@ model:
   device: "cuda"
   backbones:
     - name: "tiny"
-      base_dir: "/home/myid/syv35378/prithvi_tiny"
+      base_dir: "/home/myid/syv35378/Prithvi/prithvi_tiny"
       checkpoint: "Prithvi_EO_V2_tiny_TL.pt"
+    - name: "100M"
+      base_dir: "/home/myid/syv35378/Prithvi/prithvi_100M"
+      checkpoint: "Prithvi_EO_V2_100M_TL.pt"
     - name: "300M"
-      base_dir: "/home/myid/syv35378/prithvi_repo"
+      base_dir: "/home/myid/syv35378/Prithvi/prithvi_repo"
       checkpoint: "Prithvi_EO_V2_300M_TL.pt"
     - name: "600M"
-      base_dir: "/home/myid/syv35378/prithvi_600M"
+      base_dir: "/home/myid/syv35378/Prithvi/prithvi_600M"
       checkpoint: "Prithvi_EO_V2_600M_TL.pt"
 
 experiment:
   mask_ratios: [0.10, 0.20, 0.30, 0.40, 0.50, 0.60, 0.70, 0.80, 0.90]
   sequence_length: 3
   frame_idx: 1
-  output_dir: "/home/myid/syv35378/Prithvi-Sandbox/patch_masking_study/outputs"
+  output_dir: "/home/myid/syv35378/Prithvi/Prithvi-Sandbox/patch_masking_study/outputs"
   save_plots: true
