@@ -1,0 +1,36 @@
+experiment:
+  name: multi_tile_generalization
+  seed: 42
+  num_chips: 500
+  save_images: false
+
+dataset:
+  hf_repo: ibm-nasa-geospatial/multi-temporal-crop-classification
+  split: train
+  num_workers: 4
+  bands: [0, 1, 2, 3, 4, 5]
+  time_steps: 3
+  chip_size: 224
+
+masking:
+  ratios: [0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9]
+  frame_idx: 1
+  mask_type: patch
+
+backbones:
+  - name: tiny
+    base_dir: /home/myid/syv35378/Prithvi/prithvi_tiny
+    checkpoint: Prithvi_EO_V2_tiny_TL.pt
+  - name: 100M
+    base_dir: /home/myid/syv35378/Prithvi/prithvi_100M
+    checkpoint: Prithvi_EO_V2_100M_TL.pt
+  - name: 300M
+    base_dir: /home/myid/syv35378/Prithvi/prithvi_300M
+    checkpoint: Prithvi_EO_V2_300M_TL.pt
+  - name: 600M
+    base_dir: /home/myid/syv35378/Prithvi/prithvi_600M
+    checkpoint: Prithvi_EO_V2_600M_TL.pt
+
+output:
+  per_tile_dir: outputs/per_tile
+  aggregated_dir: outputs/aggregated
