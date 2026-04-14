@@ -1,0 +1,22 @@
+{
+  "tiny": {
+    "absolute_threshold_ratio": 0.8,
+    "inflection_ratio": 0.8,
+    "inflection_psnr": 29.095908
+  },
+  "100M": {
+    "absolute_threshold_ratio": 0.8,
+    "inflection_ratio": 0.8,
+    "inflection_psnr": 29.336213
+  },
+  "300M": {
+    "absolute_threshold_ratio": 0.8,
+    "inflection_ratio": 0.8,
+    "inflection_psnr": 29.545561
+  },
+  "600M": {
+    "absolute_threshold_ratio": 0.9,
+    "inflection_ratio": 0.8,
+    "inflection_psnr": 30.18574
+  }
+}
