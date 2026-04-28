@@ -1,0 +1,48 @@
+experiment:
+  name: block_masking_study
+  description: >
+    Evaluate Prithvi EO 2.0 backbone variants on temporal gap filling
+    when the masked region is a single contiguous rectangular block
+    (realistic cloud cover simulation). 5 random block positions per
+    chip/ratio to average out spatial location bias.
+
+data:
+  chips_dir: ~/Prithvi/Prithvi-Sandbox/multi_tile_generalization/training_chips
+  n_chips: 500
+  chip_seed: 42
+  img_size: 224
+  n_bands: 6
+  n_frames: 3
+  masked_frame_idx: 1
+
+masking:
+  type: block
+  ratios: [0.20, 0.40, 0.60, 0.80]
+  trials_per_chip: 5
+
+backbones:
+  tiny:
+    checkpoint: ~/Prithvi/prithvi_tiny/Prithvi_EO_V2_tiny_TL.pt
+    config:     ~/Prithvi/prithvi_tiny/config.json
+    patch_size: 16
+  100M:
+    checkpoint: ~/Prithvi/prithvi_100M/Prithvi_EO_V2_100M_TL.pt
+    config:     ~/Prithvi/prithvi_100M/config.json
+    patch_size: 16
+  300M:
+    checkpoint: ~/Prithvi/prithvi_300M/Prithvi_EO_V2_300M_TL.pt
+    config:     ~/Prithvi/prithvi_300M/config.json
+    patch_size: 16
+  600M:
+    checkpoint: ~/Prithvi/prithvi_600M/Prithvi_EO_V2_600M_TL.pt
+    config:     ~/Prithvi/prithvi_600M/config.json
+    patch_size: 14
+
+output:
+  dir: ~/Prithvi/Prithvi-Sandbox/multi_tile_generalization/block_masking_study/outputs
+  per_backbone_csv: true
+  summary_csv: true
+  save_images: false
+
+compute:
+  device: cuda
