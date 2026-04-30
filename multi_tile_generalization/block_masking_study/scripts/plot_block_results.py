@@ -30,6 +30,7 @@ BACKBONES = ["tiny", "100M", "300M", "600M"]
 RATIOS    = [0.20, 0.40, 0.60, 0.80]
 COLORS    = {"tiny": "#4C8BE0", "100M": "#E07C4C", "300M": "#4CBF7A", "600M": "#C04CD1"}
 MARKERS   = {"tiny": "o", "100M": "s", "300M": "^", "600M": "D"}
+N_SAMPLES  = 500 * 5  # chips x trials
 
 RANDOM_PSNR = {
     "tiny": {0.20: 34.57, 0.40: 33.31, 0.60: 31.61, 0.80: 29.10},
@@ -49,32 +50,60 @@ def load_summary():
             data[row["backbone"]][float(row["mask_ratio"])] = {
                 "mean": float(row["block_psnr_mean"]),
                 "std":  float(row["block_psnr_std"]),
+                "se":   float(row["block_psnr_std"]) / np.sqrt(N_SAMPLES),
             }
     return data
 
 
-def plot_degradation(data):
-    fig, ax = plt.subplots(figsize=(8, 5))
+def _base_plot(ax, data, yerr_key, title_suffix):
     x = [int(r * 100) for r in RATIOS]
+    x_arr = np.array(x, dtype=float)
+    offsets = {"tiny": -2, "100M": -0.7, "300M": +0.7, "600M": +2}
+
     for bb in BACKBONES:
         if bb not in data:
             continue
         means = np.array([data[bb].get(r, {}).get("mean", np.nan) for r in RATIOS])
-        stds  = np.array([data[bb].get(r, {}).get("std",  np.nan) for r in RATIOS])
-        ax.plot(x, means, marker=MARKERS[bb], color=COLORS[bb],
-                linewidth=2, markersize=7, label=bb)
-        ax.fill_between(x, means - stds, means + stds, alpha=0.15, color=COLORS[bb])
+        errs  = np.array([data[bb].get(r, {}).get(yerr_key, np.nan) for r in RATIOS]) if yerr_key else None
+        x_off = x_arr + offsets[bb]
+
+        if errs is not None:
+            ax.errorbar(x_off, means, yerr=errs,
+                        marker=MARKERS[bb], color=COLORS[bb],
+                        linewidth=2, markersize=7, capsize=4, capthick=1.5,
+                        elinewidth=1.5, label=bb)
+        else:
+            ax.plot(x_off, means,
+                    marker=MARKERS[bb], color=COLORS[bb],
+                    linewidth=2, markersize=7, label=bb)
+
     ax.axhline(30, color="red", linestyle="--", linewidth=1.2, label="30 dB threshold")
     ax.set_xlabel("Block Mask Ratio (%)", fontsize=12)
     ax.set_ylabel("Block PSNR (dB)", fontsize=12)
-    ax.set_title("Block Masking — PSNR Degradation by Backbone\n"
-                 "(500 chips × 5 trials, contiguous rectangular block)", fontsize=12)
+    ax.set_title(f"Block Masking — PSNR Degradation by Backbone\n{title_suffix}", fontsize=12)
     ax.set_xticks(x)
     ax.set_xticklabels([f"{v}%" for v in x])
     ax.legend(fontsize=11)
     ax.grid(True, alpha=0.3)
+
+
+def plot_clean_lines(data):
+    fig, ax = plt.subplots(figsize=(8, 5))
+    _base_plot(ax, data, yerr_key=None,
+               title_suffix="(500 chips × 5 trials, contiguous rectangular block)")
     fig.tight_layout()
-    path = FIG_DIR / "fig1_block_degradation.png"
+    path = FIG_DIR / "fig1a_block_degradation_clean.png"
+    fig.savefig(path, dpi=150)
+    plt.close(fig)
+    print(f"Saved: {path}")
+
+
+def plot_std_error_bars(data):
+    fig, ax = plt.subplots(figsize=(8, 5))
+    _base_plot(ax, data, yerr_key="se",
+               title_suffix="(500 chips × 5 trials, ±1 standard error)")
+    fig.tight_layout()
+    path = FIG_DIR / "fig1b_block_degradation_stderr.png"
     fig.savefig(path, dpi=150)
     plt.close(fig)
     print(f"Saved: {path}")
@@ -139,7 +168,8 @@ def plot_difficulty_gap(data):
 
 def main():
     data = load_summary()
-    plot_degradation(data)
+    plot_clean_lines(data)
+    plot_std_error_bars(data)
     plot_block_vs_random(data)
     plot_difficulty_gap(data)
     print("All figures saved to", FIG_DIR)
