@@ -3,3 +3,5 @@ __pycache__/
 *.pyc
 *.pyo
 baseline_study/outputs_log.txt
+block_masking_run.log
+multi_tile_generalization/scripts/inspect_hf_schema.py
