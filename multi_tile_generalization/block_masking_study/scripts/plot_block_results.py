@@ -77,7 +77,7 @@ def plot_degradation(data):
 
 
 def plot_block_vs_random(data):
-    fig, axes = plt.subplots(1, len(RATIOS), figsize=(14, 5), sharey=False)
+    fig, axes = plt.subplots(1, len(RATIOS), figsize=(14, 5), sharey=True)
     for ax, ratio in zip(axes, RATIOS):
         bb_labels, block_vals, random_vals = [], [], []
         for bb in BACKBONES:
@@ -94,6 +94,7 @@ def plot_block_vs_random(data):
         ax.set_xticks(x_pos)
         ax.set_xticklabels(bb_labels, fontsize=9)
         ax.set_ylabel("PSNR (dB)" if ax == axes[0] else "")
+        ax.set_ylim(0, 45)
         ax.grid(True, axis="y", alpha=0.3)
     block_patch  = mpatches.Patch(color="grey", alpha=0.85, label="Block masking")
     random_patch = mpatches.Patch(color="grey", alpha=0.4, hatch="//", label="Random masking")
