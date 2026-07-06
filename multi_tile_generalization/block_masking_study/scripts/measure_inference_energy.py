@@ -66,9 +66,13 @@ def get_gpu_power_mw(handle):
     except:
         return 0
 
+def _stats(vals):
+    a = np.array(vals, dtype=float)
+    return float(a.mean()), float(a.min()), float(a.max()), float(a.std())
+
 def measure(model, chip_tensor, mean, std, noise_fn,
             n_tokens, ratio, patch_size, grid, handle):
-    times_ms, enc_ms, dec_ms, powers_mw = [], [], [], []
+    times_ms, enc_ms, dec_ms, powers_w, energy_mj = [], [], [], [], []
     for _ in range(N_WARMUP + N_TIMED):
         noise = noise_fn(n_tokens, ratio, patch_size, grid)
         noise_t = torch.tensor(noise).unsqueeze(0).to(DEVICE)
@@ -92,17 +96,15 @@ def measure(model, chip_tensor, mean, std, noise_fn,
         td1 = time.perf_counter()
         p1 = get_gpu_power_mw(handle)
         if _ >= N_WARMUP:
-            times_ms.append((td1 - td0 + te1 - te0) * 1000)
+            t_ms = (td1 - td0 + te1 - te0) * 1000
+            p_w  = ((p0 + p1) / 2) / 1000.0
+            times_ms.append(t_ms)
             enc_ms.append((te1 - te0) * 1000)
             dec_ms.append((td1 - td0) * 1000)
-            powers_mw.append((p0 + p1) / 2)
-    mean_ms  = float(np.mean(times_ms))
-    mean_enc = float(np.mean(enc_ms))
-    mean_dec = float(np.mean(dec_ms))
-    mean_w   = float(np.mean(powers_mw)) / 1000.0
-    energy_j = mean_w * (mean_ms / 1000.0)
-    energy_mwh = energy_j / 3.6
-    return mean_ms, mean_enc, mean_dec, mean_w, energy_j, energy_mwh
+            powers_w.append(p_w)
+            energy_mj.append(p_w * (t_ms / 1000.0) * 1000)   # W·s·1000 = mJ
+    return {"time": _stats(times_ms), "enc": _stats(enc_ms), "dec": _stats(dec_ms),
+            "power": _stats(powers_w), "energy": _stats(energy_mj)}
 
 # ── main ──────────────────────────────────────────────────────────────────────
 def main():
@@ -142,16 +144,22 @@ def main():
         for ratio in MASK_RATIOS:
             for mask_type, noise_fn in [("random", build_random_noise),
                                          ("block",  build_block_noise)]:
-                ms, enc_ms, dec_ms, w, j, mwh = measure(model, chip_tensor, mean, std,
-                                         noise_fn, n_tokens, ratio,
-                                         patch_size, grid, handle)
-                row = dict(backbone=bname, mask_ratio=ratio,
-                           mask_type=mask_type,
-                           time_ms=round(ms,2), enc_ms=round(enc_ms,2), dec_ms=round(dec_ms,2),
-                           power_w=round(w,2), energy_j=round(j,5), energy_mwh=round(mwh,5))
+                st = measure(model, chip_tensor, mean, std,
+                             noise_fn, n_tokens, ratio,
+                             patch_size, grid, handle)
+                row = {"backbone": bname, "mask_ratio": ratio, "mask_type": mask_type}
+                for metric in ("time", "enc", "dec", "power", "energy"):
+                    mn, mi, mx, sd = st[metric]
+                    row[f"{metric}_mean"] = round(mn, 4)
+                    row[f"{metric}_min"]  = round(mi, 4)
+                    row[f"{metric}_max"]  = round(mx, 4)
+                    row[f"{metric}_std"]  = round(sd, 4)
                 rows.append(row)
+                tm, pw, en = st["time"], st["power"], st["energy"]
                 print(f"  {bname} | {int(ratio*100)}% {mask_type:6s} | "
-                      f"{ms:6.1f} ms (enc={enc_ms:.1f} dec={dec_ms:.1f}) | {w:5.1f} W | {j*1000:.3f} mJ")
+                      f"time {tm[0]:6.2f}±{tm[3]:.2f} ms | "
+                      f"pow {pw[0]:5.1f}±{pw[3]:.1f} W | "
+                      f"E {en[0]:7.1f} [{en[1]:.0f},{en[2]:.0f}] mJ")
 
         del model; torch.cuda.empty_cache()
 
@@ -160,13 +168,15 @@ def main():
         w.writeheader(); w.writerows(rows)
 
     print(f"\nWrote {OUT_CSV}")
-    print(f"\n{'Backbone':<8} {'Ratio':>6} {'Type':>7} {'Time(ms)':>10} "
-          f"{'Power(W)':>10} {'Energy(mJ)':>12}")
-    print("-" * 60)
+    print(f"\n{'Backbone':<8}{'Ratio':>6}{'Type':>8}"
+          f"{'E mean':>9}{'E min':>9}{'E max':>9}{'E std':>8}"
+          f"{'P mean':>9}{'P std':>8}")
+    print("-" * 76)
     for r in rows:
-        print(f"{r['backbone']:<8} {int(r['mask_ratio']*100):>5}% "
-              f"{r['mask_type']:>7} {r['time_ms']:>10.1f} "
-              f"{r['power_w']:>10.1f} {r['energy_j']*1000:>12.3f}")
+        print(f"{r['backbone']:<8}{int(r['mask_ratio']*100):>5}%{r['mask_type']:>8}"
+              f"{r['energy_mean']:>9.1f}{r['energy_min']:>9.1f}"
+              f"{r['energy_max']:>9.1f}{r['energy_std']:>8.2f}"
+              f"{r['power_mean']:>9.1f}{r['power_std']:>8.2f}")
 
     pynvml.nvmlShutdown()
 
