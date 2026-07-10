@@ -1,0 +1,13 @@
+chip,mask_ratio,sigma,required_trials
+chip_217_425_merged.tif,0.2,1.8693,215
+chip_217_425_merged.tif,0.4,0.636,25
+chip_217_425_merged.tif,0.6,0.6216,24
+chip_217_425_merged.tif,0.8,0.0,1
+chip_268_410_merged.tif,0.2,1.7714,193
+chip_268_410_merged.tif,0.4,0.6224,24
+chip_268_410_merged.tif,0.6,0.7331,34
+chip_268_410_merged.tif,0.8,0.0,1
+chip_105_452_merged.tif,0.2,2.7533,466
+chip_105_452_merged.tif,0.4,2.0225,252
+chip_105_452_merged.tif,0.6,1.193,88
+chip_105_452_merged.tif,0.8,0.0,1
