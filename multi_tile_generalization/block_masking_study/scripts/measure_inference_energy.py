@@ -2,8 +2,10 @@
 Measure inference time and GPU energy per reconstruction.
 Backbone x mask ratio x masking type (random + block).
 20 timed forward passes per condition after 3 warmup passes.
+Power is sampled continuously in a background thread (not point-sampled per pass)
+because the GPU power sensor refreshes slower than a single forward pass.
 """
-import os, sys, csv, time, warnings
+import os, sys, csv, time, threading, warnings
 import numpy as np
 import torch
 import rasterio
@@ -26,6 +28,7 @@ BACKBONES  = {
 MASK_RATIOS   = [0.2, 0.4, 0.6, 0.8]
 N_WARMUP      = 3
 N_TIMED       = 20
+POWER_POLL_S  = 0.02   # poll every 20 ms
 SUMMER_OFFSET = 6
 DEVICE        = "cuda" if torch.cuda.is_available() else "cpu"
 
@@ -33,7 +36,7 @@ DEVICE        = "cuda" if torch.cuda.is_available() else "cpu"
 def load_chip(path):
     with rasterio.open(os.path.expanduser(path)) as src:
         arr = src.read()
-    return arr.astype(np.float32)   # (18, 224, 224) raw HLS
+    return arr.astype(np.float32)
 
 def build_random_noise(n_tokens, ratio, patch_size, grid):
     target_frame_tokens = list(range(grid * grid, 2 * grid * grid))
@@ -47,7 +50,7 @@ def build_random_noise(n_tokens, ratio, patch_size, grid):
 
 def build_block_noise(n_tokens, ratio, patch_size, grid):
     n_target = grid * grid
-    offset   = grid * grid   # middle frame starts here
+    offset   = grid * grid
     target_h = target_w = grid
     bh = max(1, int(round((ratio * n_target) ** 0.5)))
     bw = max(1, int(round(ratio * n_target / bh)))
@@ -60,23 +63,47 @@ def build_block_noise(n_tokens, ratio, patch_size, grid):
     noise[block_idx] = 1.0
     return noise
 
-def get_gpu_power_mw(handle):
+def get_gpu_power_w(handle):
     try:
-        return pynvml.nvmlDeviceGetPowerUsage(handle)   # milliwatts
+        return pynvml.nvmlDeviceGetPowerUsage(handle) / 1000.0
     except:
-        return 0
+        return 0.0
 
 def _stats(vals):
     a = np.array(vals, dtype=float)
     return float(a.mean()), float(a.min()), float(a.max()), float(a.std())
 
-def measure(model, chip_tensor, mean, std, noise_fn,
-            n_tokens, ratio, patch_size, grid, handle):
-    times_ms, enc_ms, dec_ms, powers_w, energy_mj = [], [], [], [], []
-    for _ in range(N_WARMUP + N_TIMED):
+class PowerSampler:
+    """Background thread that continuously polls GPU power, decoupled from per-pass timing."""
+    def __init__(self, handle, interval_s=POWER_POLL_S):
+        self.handle = handle
+        self.interval_s = interval_s
+        self.samples = []
+        self._stop = threading.Event()
+        self._thread = None
+    def _run(self):
+        while not self._stop.is_set():
+            self.samples.append(get_gpu_power_w(self.handle))
+            time.sleep(self.interval_s)
+    def start(self):
+        self.samples = []
+        self._stop.clear()
+        self._thread = threading.Thread(target=self._run, daemon=True)
+        self._thread.start()
+    def stop_and_get_mean(self):
+        self._stop.set()
+        self._thread.join()
+        if not self.samples:
+            return 0.0
+        return float(np.mean(self.samples))
+
+def measure(model, chip_tensor, noise_fn, n_tokens, ratio, patch_size, grid, handle):
+    times_ms, enc_ms, dec_ms = [], [], []
+    sampler = PowerSampler(handle)
+    sampler.start()
+    for i in range(N_WARMUP + N_TIMED):
         noise = noise_fn(n_tokens, ratio, patch_size, grid)
         noise_t = torch.tensor(noise).unsqueeze(0).to(DEVICE)
-        # --- encoder ---
         torch.cuda.synchronize()
         te0 = time.perf_counter()
         with torch.no_grad():
@@ -85,8 +112,6 @@ def measure(model, chip_tensor, mean, std, noise_fn,
                 model, chip_tensor, None, None, ratio, noise_t)
         torch.cuda.synchronize()
         te1 = time.perf_counter()
-        # --- decoder ---
-        p0 = get_gpu_power_mw(handle)
         torch.cuda.synchronize()
         td0 = time.perf_counter()
         with torch.no_grad():
@@ -94,15 +119,15 @@ def measure(model, chip_tensor, mean, std, noise_fn,
                                  input_size=chip_tensor.shape)
         torch.cuda.synchronize()
         td1 = time.perf_counter()
-        p1 = get_gpu_power_mw(handle)
-        if _ >= N_WARMUP:
-            t_ms = (td1 - td0 + te1 - te0) * 1000
-            p_w  = ((p0 + p1) / 2) / 1000.0
-            times_ms.append(t_ms)
+        if i >= N_WARMUP:
+            times_ms.append((td1 - td0 + te1 - te0) * 1000)
             enc_ms.append((te1 - te0) * 1000)
             dec_ms.append((td1 - td0) * 1000)
-            powers_w.append(p_w)
-            energy_mj.append(p_w * (t_ms / 1000.0) * 1000)   # W·s·1000 = mJ
+    # average power over the ENTIRE batch (warmup + timed) — continuous, reliable
+    avg_power_w = sampler.stop_and_get_mean()
+    # per-pass energy = reliable avg power * that pass's own (precise) time
+    energy_mj = [avg_power_w * (t_ms / 1000.0) * 1000 for t_ms in times_ms]
+    powers_w = [avg_power_w] * len(times_ms)  # power is now one batch-level estimate
     return {"time": _stats(times_ms), "enc": _stats(enc_ms), "dec": _stats(dec_ms),
             "power": _stats(powers_w), "energy": _stats(energy_mj)}
 
@@ -129,12 +154,9 @@ def main():
         )
         model.eval()
 
-        # build chip tensor (normalise to model scale)
-        summer = raw[SUMMER_OFFSET:SUMMER_OFFSET+6]
-        grid   = 224 // patch_size
+        grid = 224 // patch_size
         n_tokens = 3 * grid * grid
 
-        # normalise chip using model mean/std
         chip_norm = raw.copy()
         m = np.tile(np.array(mean, dtype=np.float32), 3).reshape(-1,1,1)
         s = np.tile(np.array(std,  dtype=np.float32), 3).reshape(-1,1,1)
@@ -144,8 +166,7 @@ def main():
         for ratio in MASK_RATIOS:
             for mask_type, noise_fn in [("random", build_random_noise),
                                          ("block",  build_block_noise)]:
-                st = measure(model, chip_tensor, mean, std,
-                             noise_fn, n_tokens, ratio,
+                st = measure(model, chip_tensor, noise_fn, n_tokens, ratio,
                              patch_size, grid, handle)
                 row = {"backbone": bname, "mask_ratio": ratio, "mask_type": mask_type}
                 for metric in ("time", "enc", "dec", "power", "energy"):
@@ -158,8 +179,8 @@ def main():
                 tm, pw, en = st["time"], st["power"], st["energy"]
                 print(f"  {bname} | {int(ratio*100)}% {mask_type:6s} | "
                       f"time {tm[0]:6.2f}±{tm[3]:.2f} ms | "
-                      f"pow {pw[0]:5.1f}±{pw[3]:.1f} W | "
-                      f"E {en[0]:7.1f} [{en[1]:.0f},{en[2]:.0f}] mJ")
+                      f"pow {pw[0]:5.1f}W (continuous avg) | "
+                      f"E {en[0]:7.1f}±{en[3]:.1f} mJ")
 
         del model; torch.cuda.empty_cache()
 
@@ -170,13 +191,13 @@ def main():
     print(f"\nWrote {OUT_CSV}")
     print(f"\n{'Backbone':<8}{'Ratio':>6}{'Type':>8}"
           f"{'E mean':>9}{'E min':>9}{'E max':>9}{'E std':>8}"
-          f"{'P mean':>9}{'P std':>8}")
-    print("-" * 76)
+          f"{'P mean':>9}")
+    print("-" * 68)
     for r in rows:
         print(f"{r['backbone']:<8}{int(r['mask_ratio']*100):>5}%{r['mask_type']:>8}"
               f"{r['energy_mean']:>9.1f}{r['energy_min']:>9.1f}"
               f"{r['energy_max']:>9.1f}{r['energy_std']:>8.2f}"
-              f"{r['power_mean']:>9.1f}{r['power_std']:>8.2f}")
+              f"{r['power_mean']:>9.1f}")
 
     pynvml.nvmlShutdown()
 
