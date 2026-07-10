@@ -1,4 +1,4 @@
-"""Required trials via n=(z*sigma/E)^2 + running-mean convergence plot."""
+"""Required trials via n=(z*sigma/E)^2 + running-mean convergence plot (fixed y-axis)."""
 import os, sys, math
 import numpy as np, pandas as pd, matplotlib.pyplot as plt
 sys.path.insert(0, os.path.expanduser("~/Prithvi"))
@@ -21,6 +21,17 @@ for c in chips:
         n = math.ceil((Z*sd/E)**2) if sd>0 else 1
         print(f"{c:<28}{int(r*100):>5}%{sd:>8.3f}{n:>14}")
 
+# compute shared y-limits across all ratios/chips so all 4 panels use the same scale
+all_runs = []
+for r in ratios:
+    for c in chips:
+        v = df[(df.chip==c)&(df.ratio==r)].sort_values("trial").psnr.values
+        all_runs.append(np.cumsum(v)/np.arange(1,len(v)+1))
+ymin = min(run.min() for run in all_runs)
+ymax = max(run.max() for run in all_runs)
+pad = (ymax-ymin)*0.05
+ylim = (ymin-pad, ymax+pad)
+
 fig, axes = plt.subplots(1, len(ratios), figsize=(16,4))
 for ax, r in zip(axes, ratios):
     for c in chips:
@@ -28,7 +39,11 @@ for ax, r in zip(axes, ratios):
         run = np.cumsum(v)/np.arange(1,len(v)+1)
         ax.plot(range(1,len(v)+1), run, label=c.replace("_merged.tif",""))
     ax.set_title(f"{int(r*100)}% mask"); ax.set_xlabel("trials averaged")
-    if r==ratios[0]: ax.set_ylabel("running mean PSNR (dB)"); ax.legend(fontsize=7)
+    ax.set_ylim(*ylim)
+    if r==ratios[0]:
+        ax.set_ylabel("running mean PSNR (dB)"); ax.legend(fontsize=7)
+    else:
+        ax.set_yticklabels([])
 fig.suptitle("Convergence of block-PSNR vs number of trials (600M)")
 fig.tight_layout(); fig.savefig(OUT, dpi=150, bbox_inches="tight")
 print("Wrote", OUT)
