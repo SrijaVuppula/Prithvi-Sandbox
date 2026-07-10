@@ -1,27 +1,35 @@
-"""Required trials via n=(z*sigma/E)^2 + running-mean convergence plot (fixed y-axis)."""
-import os, sys, math
+"""Required trials via n=(z*sigma/E)^2 + running-mean convergence plot (fixed y-axis). Saves CSV."""
+import os, sys, math, csv
 import numpy as np, pandas as pd, matplotlib.pyplot as plt
 sys.path.insert(0, os.path.expanduser("~/Prithvi"))
 try:
     from plot_style import apply_style; apply_style()
 except Exception: pass
 
-CSV = "multi_tile_generalization/block_masking_study/outputs/pilot_trials.csv"
+CSV_IN = "multi_tile_generalization/block_masking_study/outputs/pilot_trials.csv"
+CSV_OUT = "multi_tile_generalization/block_masking_study/outputs/required_trials.csv"
 OUT = "multi_tile_generalization/block_masking_study/outputs/figures/fig_pilot_convergence.png"
 os.makedirs(os.path.dirname(OUT), exist_ok=True)
 Z, E = 1.96, 0.25   # margin = +/-0.25 dB
 
-df = pd.read_csv(CSV)
+df = pd.read_csv(CSV_IN)
 chips = df.chip.unique(); ratios = sorted(df.ratio.unique())
 
+rows = []
 print(f"{'chip':<28}{'ratio':>6}{'sigma':>8}{'req_n(E=0.25)':>14}")
 for c in chips:
     for r in ratios:
         sd = df[(df.chip==c)&(df.ratio==r)].psnr.std()
         n = math.ceil((Z*sd/E)**2) if sd>0 else 1
         print(f"{c:<28}{int(r*100):>5}%{sd:>8.3f}{n:>14}")
+        rows.append({"chip": c, "mask_ratio": r, "sigma": round(sd,4), "required_trials": n})
 
-# compute shared y-limits across all ratios/chips so all 4 panels use the same scale
+with open(CSV_OUT, "w", newline="") as f:
+    w = csv.DictWriter(f, fieldnames=rows[0].keys())
+    w.writeheader(); w.writerows(rows)
+print(f"\nWrote {CSV_OUT}")
+
+# shared y-limits across all ratios/chips
 all_runs = []
 for r in ratios:
     for c in chips:
