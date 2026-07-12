@@ -25,10 +25,14 @@ BACKBONES  = {
     "300M":  ("~/Prithvi/prithvi_300M",  "Prithvi_EO_V2_300M_TL.pt"),
     "600M":  ("~/Prithvi/prithvi_600M",  "Prithvi_EO_V2_600M_TL.pt"),
 }
-MASK_RATIOS   = [0.2, 0.4, 0.6, 0.8]
+MASK_RATIOS   = [0.1, 0.2, 0.4, 0.6, 0.8]
 N_WARMUP      = 3
 N_TIMED       = 20
 POWER_POLL_S  = 0.02   # poll every 20 ms
+GPU_WARMUP_S  = 3.0    # seconds of dummy passes before EACH condition, to reach
+                       # steady clock-boost state before measuring (prevents
+                       # order-dependent power readings — see
+                       # ORDER_EFFECT_INVESTIGATION findings)
 SUMMER_OFFSET = 6
 DEVICE        = "cuda" if torch.cuda.is_available() else "cpu"
 
@@ -99,6 +103,24 @@ class PowerSampler:
 
 def measure(model, chip_tensor, noise_fn, n_tokens, ratio, patch_size, grid, handle):
     times_ms, enc_ms, dec_ms = [], [], []
+
+    # --- per-condition GPU warmup: run dummy passes for a fixed wall-clock
+    # duration so the GPU reaches steady clock-boost state BEFORE this
+    # condition is measured, regardless of run order. Without this, whichever
+    # condition happens to run first/early in the script reads artificially
+    # low power because the GPU has not yet boosted from idle clocks. ---
+    warmup_start = time.perf_counter()
+    while time.perf_counter() - warmup_start < GPU_WARMUP_S:
+        noise_w = noise_fn(n_tokens, ratio, patch_size, grid)
+        noise_wt = torch.tensor(noise_w).unsqueeze(0).to(DEVICE)
+        with torch.no_grad():
+            from patch_masking_study.terratorch_loader import _encode_with_noise
+            latent_w, mask_w, ids_restore_w = _encode_with_noise(
+                model, chip_tensor, None, None, ratio, noise_wt)
+            _ = model.decoder(latent_w, ids_restore_w, None, None,
+                              input_size=chip_tensor.shape)
+        torch.cuda.synchronize()
+
     sampler = PowerSampler(handle)
     sampler.start()
     for i in range(N_WARMUP + N_TIMED):
