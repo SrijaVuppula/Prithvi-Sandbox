@@ -1,5 +1,5 @@
 """
-temporal_gap_masker_FIXED.py
+temporal_gap_masker.py
 ----------------------------
 Corrected masking for the block-vs-random temporal-gap-filling comparison.
 

@@ -5,7 +5,7 @@ Reads the ACTUAL token mask the encoder produces (out of _encode_with_noise)
 for one chip on the 600M backbone, and reports per-frame visible % for:
 
   (1) OLD block masker  (block_masker.build_block_noise_mask, per-frame ratio)
-  (2) FIXED block masker (temporal_gap_masker_FIXED, global ratio)
+  (2) FIXED block masker (temporal_gap_masker, global ratio)
   (3) FIXED random-matched masker (same summer count as the fixed block trial)
 
 Expected outcome:
@@ -39,7 +39,7 @@ sys.path.insert(0, str(MASK))
 
 from terratorch_loader import load_prithvi_from_terratorch, _encode_with_noise
 from block_masker import build_block_noise_mask as old_block            # OLD
-from temporal_gap_masker_FIXED import (                                 # FIXED
+from temporal_gap_masker import (                                 # FIXED
     build_block_noise_mask  as fixed_block,
     build_random_noise_mask as fixed_random,
 )

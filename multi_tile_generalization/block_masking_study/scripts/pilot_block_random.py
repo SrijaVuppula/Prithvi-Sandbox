@@ -1,5 +1,5 @@
 """
-pilot_fixed_crossover.py
+pilot_block_random.py
 ------------------------
 Fast paired block-vs-random pilot using the CORRECTED maskers
 (spring/fall fully visible, matched summer count). 600M, 3 pilot chips,
@@ -9,7 +9,7 @@ maskers and reports delta = random - block per ratio.
 Reads the crossover directly: delta > 0 => block harder; delta < 0 => random
 harder. A sign flip from low to high ratio == the crossover survives the fix.
 
-Writes: outputs/pilot_fixed_crossover.csv   (nothing old is touched)
+Writes: outputs/pilot_block_random.csv   (nothing old is touched)
 Run from repo root with the venv active.
 """
 
@@ -27,7 +27,7 @@ sys.path.insert(0, str(REPO / "patch_masking_study"))
 sys.path.insert(0, str(MASK))
 
 from terratorch_loader import load_prithvi_from_terratorch, run_masked_forward
-from temporal_gap_masker_FIXED import (
+from temporal_gap_masker import (
     build_block_noise_mask  as fixed_block,
     build_random_noise_mask as fixed_random,
     pixel_map,
@@ -41,7 +41,7 @@ T, FRAME    = 3, 1
 RATIOS      = [0.20, 0.40, 0.60, 0.80]
 N_TRIALS    = 50            # Session-14 adopted standard (E=0.5 dB)
 CHIPS       = ["chip_217_425", "chip_268_410", "chip_105_452"]  # complex / mid / simple
-OUT_CSV     = STUDY / "outputs" / "pilot_fixed_crossover.csv"
+OUT_CSV     = STUDY / "outputs" / "pilot_block_random.csv"
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 

@@ -1,5 +1,5 @@
 """
-run_fixed_paired.py
+run_paired_block_random.py
 -------------------
 Full paired block-vs-random rerun with CORRECTED maskers
 (spring/fall fully visible, matched summer count per trial).
@@ -27,7 +27,7 @@ sys.path.insert(0, str(REPO / "patch_masking_study"))
 sys.path.insert(0, str(MASK))
 
 from terratorch_loader import load_prithvi_from_terratorch, run_masked_forward
-from temporal_gap_masker_FIXED import (
+from temporal_gap_masker import (
     build_block_noise_mask  as fixed_block,
     build_random_noise_mask as fixed_random,
     pixel_map,
