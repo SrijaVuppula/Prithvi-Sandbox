@@ -2,8 +2,14 @@
 Measure inference time and GPU energy per reconstruction.
 Backbone x mask ratio x masking type (random + block).
 20 timed forward passes per condition after 3 warmup passes.
+
 Power is sampled continuously in a background thread (not point-sampled per pass)
 because the GPU power sensor refreshes slower than a single forward pass.
+
+Masking: only summer patches are occluded; spring/fall stay 100% visible; block
+and random mask the SAME number of summer patches at each ratio. The GLOBAL
+ratio (n_summer_masked / total_tokens) is passed to the encoder so TerraTorch's
+global len_keep keeps everything except the intended summer patches.
 """
 import os, sys, csv, time, threading, warnings
 import numpy as np
@@ -14,7 +20,11 @@ warnings.filterwarnings("ignore")
 
 ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "../../.."))
 sys.path.insert(0, ROOT)
-from patch_masking_study.terratorch_loader import load_prithvi_from_terratorch, run_masked_forward
+sys.path.insert(0, os.path.join(ROOT, "multi_tile_generalization",
+                                "block_masking_study", "masking"))
+from patch_masking_study.terratorch_loader import (
+    load_prithvi_from_terratorch, _encode_with_noise)
+from temporal_gap_masker import build_block_noise_mask, build_random_noise_mask
 
 # ── config ────────────────────────────────────────────────────────────────────
 CHIP_PATH  = "multi_tile_generalization/study_chips_500/chip_217_425_merged.tif"
@@ -29,11 +39,12 @@ MASK_RATIOS   = [0.1, 0.2, 0.4, 0.6, 0.8]
 N_WARMUP      = 3
 N_TIMED       = 20
 POWER_POLL_S  = 0.02   # poll every 20 ms
-GPU_WARMUP_S  = 3.0    # seconds of dummy passes before EACH condition, to reach
-                       # steady clock-boost state before measuring (prevents
-                       # order-dependent power readings — see
-                       # ORDER_EFFECT_INVESTIGATION findings)
-SUMMER_OFFSET = 6
+GPU_WARMUP_S  = 3.0    # dummy passes before EACH condition, to reach steady
+                       # clock-boost state before measuring (prevents
+                       # order-dependent power readings)
+FRAME_IDX     = 1      # summer
+N_FRAMES      = 3
+IMG           = 224
 DEVICE        = "cuda" if torch.cuda.is_available() else "cpu"
 
 # ── helpers ───────────────────────────────────────────────────────────────────
@@ -41,31 +52,6 @@ def load_chip(path):
     with rasterio.open(os.path.expanduser(path)) as src:
         arr = src.read()
     return arr.astype(np.float32)
-
-def build_random_noise(n_tokens, ratio, patch_size, grid):
-    target_frame_tokens = list(range(grid * grid, 2 * grid * grid))
-    n_mask = int(ratio * len(target_frame_tokens))
-    noise = np.random.rand(n_tokens)
-    noise[target_frame_tokens] = 0.9 + 0.1 * np.random.rand(len(target_frame_tokens))
-    idx = sorted(target_frame_tokens, key=lambda i: noise[i], reverse=True)[:n_mask]
-    noise[:] = 0.0
-    noise[idx] = 1.0
-    return noise
-
-def build_block_noise(n_tokens, ratio, patch_size, grid):
-    n_target = grid * grid
-    offset   = grid * grid
-    target_h = target_w = grid
-    bh = max(1, int(round((ratio * n_target) ** 0.5)))
-    bw = max(1, int(round(ratio * n_target / bh)))
-    bh = min(bh, target_h); bw = min(bw, target_w)
-    r0 = np.random.randint(0, target_h - bh + 1)
-    c0 = np.random.randint(0, target_w - bw + 1)
-    block_idx = [offset + (r0 + dr) * target_w + (c0 + dc)
-                 for dr in range(bh) for dc in range(bw)]
-    noise = np.zeros(n_tokens)
-    noise[block_idx] = 1.0
-    return noise
 
 def get_gpu_power_w(handle):
     try:
@@ -101,37 +87,48 @@ class PowerSampler:
             return 0.0
         return float(np.mean(self.samples))
 
-def measure(model, chip_tensor, noise_fn, n_tokens, ratio, patch_size, grid, handle):
+def make_noise_fn(mask_type, ratio, patch_size, n_match):
+    """Return f(seed) -> (noise_tensor_1d, global_ratio). Matched summer count."""
+    def f(seed):
+        if mask_type == "block":
+            noise, gr, idx = build_block_noise_mask(
+                ratio, patch_size, IMG, N_FRAMES, FRAME_IDX, trial_seed=seed)
+        else:
+            noise, gr, idx = build_random_noise_mask(
+                ratio, patch_size, IMG, N_FRAMES, FRAME_IDX, trial_seed=seed,
+                n_summer_masked=n_match)
+        return noise, gr, len(idx)
+    return f
+
+def measure(model, chip_tensor, noise_fn, handle):
     times_ms, enc_ms, dec_ms = [], [], []
 
-    # --- per-condition GPU warmup: run dummy passes for a fixed wall-clock
-    # duration so the GPU reaches steady clock-boost state BEFORE this
-    # condition is measured, regardless of run order. Without this, whichever
-    # condition happens to run first/early in the script reads artificially
-    # low power because the GPU has not yet boosted from idle clocks. ---
+    # --- per-condition GPU warmup: dummy passes for a fixed wall-clock duration
+    # so the GPU reaches steady clock-boost state BEFORE this condition is
+    # measured, regardless of run order. ---
     warmup_start = time.perf_counter()
+    wseed = 0
     while time.perf_counter() - warmup_start < GPU_WARMUP_S:
-        noise_w = noise_fn(n_tokens, ratio, patch_size, grid)
-        noise_wt = torch.tensor(noise_w).unsqueeze(0).to(DEVICE)
+        noise_w, gr_w, _ = noise_fn(wseed); wseed += 1
+        noise_wt = noise_w.unsqueeze(0).to(DEVICE)
         with torch.no_grad():
-            from patch_masking_study.terratorch_loader import _encode_with_noise
             latent_w, mask_w, ids_restore_w = _encode_with_noise(
-                model, chip_tensor, None, None, ratio, noise_wt)
+                model, chip_tensor, None, None, gr_w, noise_wt)
             _ = model.decoder(latent_w, ids_restore_w, None, None,
                               input_size=chip_tensor.shape)
         torch.cuda.synchronize()
 
     sampler = PowerSampler(handle)
     sampler.start()
+    tokens_kept = None
     for i in range(N_WARMUP + N_TIMED):
-        noise = noise_fn(n_tokens, ratio, patch_size, grid)
-        noise_t = torch.tensor(noise).unsqueeze(0).to(DEVICE)
+        noise, gr, n_masked = noise_fn(1000 + i)
+        noise_t = noise.unsqueeze(0).to(DEVICE)
         torch.cuda.synchronize()
         te0 = time.perf_counter()
         with torch.no_grad():
-            from patch_masking_study.terratorch_loader import _encode_with_noise
             latent, mask, ids_restore = _encode_with_noise(
-                model, chip_tensor, None, None, ratio, noise_t)
+                model, chip_tensor, None, None, gr, noise_t)
         torch.cuda.synchronize()
         te1 = time.perf_counter()
         torch.cuda.synchronize()
@@ -141,17 +138,18 @@ def measure(model, chip_tensor, noise_fn, n_tokens, ratio, patch_size, grid, han
                                  input_size=chip_tensor.shape)
         torch.cuda.synchronize()
         td1 = time.perf_counter()
+        if tokens_kept is None:
+            tokens_kept = int(latent.shape[1])
         if i >= N_WARMUP:
             times_ms.append((td1 - td0 + te1 - te0) * 1000)
             enc_ms.append((te1 - te0) * 1000)
             dec_ms.append((td1 - td0) * 1000)
-    # average power over the ENTIRE batch (warmup + timed) — continuous, reliable
     avg_power_w = sampler.stop_and_get_mean()
-    # per-pass energy = reliable avg power * that pass's own (precise) time
     energy_mj = [avg_power_w * (t_ms / 1000.0) * 1000 for t_ms in times_ms]
-    powers_w = [avg_power_w] * len(times_ms)  # power is now one batch-level estimate
-    return {"time": _stats(times_ms), "enc": _stats(enc_ms), "dec": _stats(dec_ms),
-            "power": _stats(powers_w), "energy": _stats(energy_mj)}
+    powers_w = [avg_power_w] * len(times_ms)
+    return ({"time": _stats(times_ms), "enc": _stats(enc_ms), "dec": _stats(dec_ms),
+             "power": _stats(powers_w), "energy": _stats(energy_mj)},
+            n_masked, tokens_kept)
 
 # ── main ──────────────────────────────────────────────────────────────────────
 def main():
@@ -176,8 +174,9 @@ def main():
         )
         model.eval()
 
-        grid = 224 // patch_size
-        n_tokens = 3 * grid * grid
+        grid = IMG // patch_size
+        ppf = grid * grid
+        n_tokens = N_FRAMES * ppf
 
         chip_norm = raw.copy()
         m = np.tile(np.array(mean, dtype=np.float32), 3).reshape(-1,1,1)
@@ -186,11 +185,18 @@ def main():
         chip_tensor = torch.tensor(chip_norm).reshape(3, 6, 224, 224).permute(1, 0, 2, 3).unsqueeze(0).to(DEVICE)
 
         for ratio in MASK_RATIOS:
-            for mask_type, noise_fn in [("random", build_random_noise),
-                                         ("block",  build_block_noise)]:
-                st = measure(model, chip_tensor, noise_fn, n_tokens, ratio,
-                             patch_size, grid, handle)
-                row = {"backbone": bname, "mask_ratio": ratio, "mask_type": mask_type}
+            # block first, to fix the summer patch count random must match
+            _, _, idx_b = build_block_noise_mask(
+                ratio, patch_size, IMG, N_FRAMES, FRAME_IDX, trial_seed=0)
+            n_match = len(idx_b)
+
+            for mask_type in ("random", "block"):
+                fn = make_noise_fn(mask_type, ratio, patch_size, n_match)
+                st, n_masked, tokens_kept = measure(model, chip_tensor, fn, handle)
+                row = {"backbone": bname, "mask_ratio": ratio, "mask_type": mask_type,
+                       "summer_masked": n_masked, "total_tokens": n_tokens,
+                       "tokens_encoded": tokens_kept,
+                       "global_ratio": round(n_masked / n_tokens, 4)}
                 for metric in ("time", "enc", "dec", "power", "energy"):
                     mn, mi, mx, sd = st[metric]
                     row[f"{metric}_mean"] = round(mn, 4)
@@ -200,9 +206,9 @@ def main():
                 rows.append(row)
                 tm, pw, en = st["time"], st["power"], st["energy"]
                 print(f"  {bname} | {int(ratio*100)}% {mask_type:6s} | "
+                      f"summer {n_masked:3d}/{ppf} | enc {tokens_kept:3d} tok | "
                       f"time {tm[0]:6.2f}±{tm[3]:.2f} ms | "
-                      f"pow {pw[0]:5.1f}W (continuous avg) | "
-                      f"E {en[0]:7.1f}±{en[3]:.1f} mJ")
+                      f"pow {pw[0]:5.1f}W | E {en[0]:7.1f}±{en[3]:.1f} mJ")
 
         del model; torch.cuda.empty_cache()
 
@@ -211,16 +217,6 @@ def main():
         w.writeheader(); w.writerows(rows)
 
     print(f"\nWrote {OUT_CSV}")
-    print(f"\n{'Backbone':<8}{'Ratio':>6}{'Type':>8}"
-          f"{'E mean':>9}{'E min':>9}{'E max':>9}{'E std':>8}"
-          f"{'P mean':>9}")
-    print("-" * 68)
-    for r in rows:
-        print(f"{r['backbone']:<8}{int(r['mask_ratio']*100):>5}%{r['mask_type']:>8}"
-              f"{r['energy_mean']:>9.1f}{r['energy_min']:>9.1f}"
-              f"{r['energy_max']:>9.1f}{r['energy_std']:>8.2f}"
-              f"{r['power_mean']:>9.1f}")
-
     pynvml.nvmlShutdown()
 
 if __name__ == "__main__":
