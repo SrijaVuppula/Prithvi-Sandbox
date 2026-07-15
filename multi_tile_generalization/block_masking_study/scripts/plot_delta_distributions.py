@@ -1,126 +1,76 @@
 """
 plot_delta_distributions.py
 ---------------------------
-For each mask ratio (20/40/60/80%), plots the distribution of
-delta = random_psnr - block_psnr across all chips.
+Density of chip-level delta (random - block), faceted by mask ratio, one curve
+per backbone. Matches the layout of the old study's delta distribution figure,
+but built on the corrected paired results.
 
-One figure, 4 subplots (one per ratio), all 4 backbones overlaid.
-x-axis: delta (random - block). Positive = random harder, Negative = block harder.
-Vertical dashed line at x=0 separates the two regimes.
+Convention: delta = random_psnr - block_psnr.  delta > 0  =>  BLOCK HARDER.
+Chip-level delta = mean over the 5 trials per (chip, ratio).
 
-Run from repo root:
-    python multi_tile_generalization/block_masking_study/scripts/plot_delta_distributions.py
+Reads outputs/results_{bb}.csv -> outputs/figures/fig_delta_distributions.png
 """
-
-import random
-import pandas as pd
-import numpy as np
-import matplotlib.pyplot as plt
-import matplotlib.patches as mpatches
-from scipy.stats import gaussian_kde
+import os, sys
 from pathlib import Path
+import numpy as np
+import pandas as pd
+import matplotlib
+matplotlib.use("Agg")
+import matplotlib.pyplot as plt
+from matplotlib.lines import Line2D
+from scipy.stats import gaussian_kde
 
-# ── Paths ─────────────────────────────────────────────────────────────────────
-REPO_ROOT    = Path(__file__).resolve().parents[3]
-CHIPS_DIR    = REPO_ROOT / "multi_tile_generalization" / "training_chips"
-BLOCK_DIR    = REPO_ROOT / "multi_tile_generalization" / "block_masking_study" / "outputs"
-RANDOM_DIR   = REPO_ROOT / "multi_tile_generalization" / "outputs" / "per_tile"
-OUT_DIR      = BLOCK_DIR / "figures"
-OUT_DIR.mkdir(parents=True, exist_ok=True)
+SCRIPT_DIR = Path(__file__).resolve().parent
+sys.path.insert(0, str(SCRIPT_DIR))
+from _style import get_style, BACKBONES, RATIOS
 
-BACKBONES    = ["tiny", "100M", "300M", "600M"]
-COLORS       = {"tiny": "#4878CF", "100M": "#D65F5F", "300M": "#6ACC65", "600M": "#B47CC7"}
-SEED         = 42
-N_CHIPS      = 500
-BLOCK_RATIOS = [0.2, 0.4, 0.6, 0.8]
-RATIO_LABELS = {0.2: "20% masked", 0.4: "40% masked",
-                0.6: "60% masked", 0.8: "80% masked"}
+OUT_DIR = SCRIPT_DIR.parent / "outputs"
+FIG_DIR = OUT_DIR / "figures"
+FIG_DIR.mkdir(parents=True, exist_ok=True)
 
-# ── Reconstruct chip_idx → filename mapping ───────────────────────────────────
-all_files   = sorted(CHIPS_DIR.glob("chip_*_merged.tif"))
-rng         = random.Random(SEED)
-sampled     = rng.sample(all_files, min(N_CHIPS, len(all_files)))
-idx_to_chip = {i: f.name for i, f in enumerate(sampled)}
-chip_to_idx = {v: k for k, v in idx_to_chip.items()}
+XLIM = (-2.0, 8.0)   # shared across panels for comparability
 
-# ── Load block results (mean across 5 trials) ─────────────────────────────────
-block_frames = []
-for bb in BACKBONES:
-    df  = pd.read_csv(BLOCK_DIR / f"results_{bb}.csv")
-    agg = (df.groupby(["backbone", "chip", "mask_ratio"])["block_psnr"]
-             .mean().reset_index()
-             .rename(columns={"block_psnr": "block_psnr_mean"}))
-    block_frames.append(agg)
-block_df = pd.concat(block_frames, ignore_index=True)
-block_df["chip_idx"] = block_df["chip"].map(chip_to_idx)
+apply_style, COLORS = get_style()
+apply_style()
 
-# ── Load random results ────────────────────────────────────────────────────────
-random_frames = []
-for bb in BACKBONES:
-    df = pd.read_csv(RANDOM_DIR / f"{bb}_results.csv")
-    df = df[df["mask_ratio"].isin(BLOCK_RATIOS)][["chip_idx","backbone","mask_ratio","masked_psnr"]]
-    df.rename(columns={"masked_psnr": "random_psnr"}, inplace=True)
-    random_frames.append(df)
-random_df = pd.concat(random_frames, ignore_index=True)
+fig, axes = plt.subplots(1, 4, figsize=(15, 4.0), sharex=True)
 
-# ── Merge and compute delta ────────────────────────────────────────────────────
-merged = pd.merge(block_df, random_df, on=["chip_idx","backbone","mask_ratio"], how="inner")
-merged["delta"] = merged["random_psnr"] - merged["block_psnr_mean"]
-
-# ── Plot ───────────────────────────────────────────────────────────────────────
-fig, axes = plt.subplots(1, 4, figsize=(18, 5), sharey=False)
-fig.suptitle("Distribution of  Δ = Random PSNR − Block PSNR  per Chip\n"
-             "Peak left of 0 → block harder   |   Peak right of 0 → random harder",
-             fontsize=13, y=1.02)
-
-for ax, ratio in zip(axes, BLOCK_RATIOS):
-    sub = merged[merged["mask_ratio"] == ratio]
-
-    x_all  = sub["delta"].values
-    x_min  = np.percentile(x_all, 1) - 0.5
-    x_max  = np.percentile(x_all, 99) + 0.5
-    x_grid = np.linspace(x_min, x_max, 400)
-
+for ax, r in zip(axes, RATIOS):
     for bb in BACKBONES:
-        vals = sub[sub["backbone"] == bb]["delta"].values
-        if len(vals) < 10:
-            continue
-        kde = gaussian_kde(vals, bw_method=0.35)
-        y   = kde(x_grid)
-        ax.plot(x_grid, y, color=COLORS[bb], linewidth=2, label=bb)
-        ax.fill_between(x_grid, y, alpha=0.10, color=COLORS[bb])
+        df = pd.read_csv(OUT_DIR / f"results_{bb}.csv")
+        d = (df[df["mask_ratio"] == r]
+               .groupby("chip")["delta_rand_minus_block"].mean().values)
+        xs = np.linspace(XLIM[0], XLIM[1], 400)
+        kde = gaussian_kde(d)
+        c = COLORS[bb]
+        ax.plot(xs, kde(xs), color=c, lw=1.8, zorder=3)
+        ax.fill_between(xs, kde(xs), color=c, alpha=0.10, linewidth=0)
+        ax.axvline(d.mean(), color=c, lw=1.2, ls="--", alpha=0.9, zorder=2)
 
-        # Mark mean and median
-        ax.axvline(vals.mean(),      color=COLORS[bb], linewidth=1.2, linestyle="--", alpha=0.8)
-        ax.axvline(np.median(vals),  color=COLORS[bb], linewidth=1.2, linestyle=":",  alpha=0.8)
+    ax.axvline(0, color="black", lw=1.6, zorder=4)
+    ax.set_title(f"{int(r*100)}% masked", fontsize=11, fontweight="bold", pad=6)
+    ax.set_xlabel("Δ = Random PSNR − Block PSNR (dB)")
+    ax.set_xlim(*XLIM)
+    ax.grid(axis="y", alpha=0.2, lw=0.6)
+    ax.grid(axis="x", visible=False)
 
-    # x=0 divider
-    ax.axvline(0, color="black", linewidth=1.8, linestyle="-")
+    yt = ax.get_ylim()[1]
+    ax.text(-1.85, yt * 0.96, "← Random harder", fontsize=8.5, color="0.45", va="top")
+    ax.text(7.85, yt * 0.96, "Block harder →", fontsize=8.5, color="0.45",
+            va="top", ha="right")
 
-    ax.set_xlim(x_min, x_max)
-    ax.set_title(RATIO_LABELS[ratio], fontsize=12, fontweight="bold")
-    ax.set_xlabel("Δ = Random PSNR − Block PSNR (dB)", fontsize=10)
-    ax.set_ylabel("Density", fontsize=10)
-    ax.text(0.02, 0.97, "← Block harder", transform=ax.transAxes,
-            fontsize=8, color="grey", va="top", ha="left")
-    ax.text(0.98, 0.97, "Random harder →", transform=ax.transAxes,
-            fontsize=8, color="grey", va="top", ha="right")
-    ax.grid(axis="x", linestyle=":", alpha=0.4)
-    ax.spines[["top","right"]].set_visible(False)
+axes[0].set_ylabel("Density")
 
-# Legend
-backbone_handles = [mpatches.Patch(color=COLORS[bb], label=bb) for bb in BACKBONES]
-line_handles = [
-    plt.Line2D([0],[0], color="grey", linewidth=1.5, linestyle="--", label="Mean"),
-    plt.Line2D([0],[0], color="grey", linewidth=1.5, linestyle=":",  label="Median"),
-    plt.Line2D([0],[0], color="black", linewidth=2,  linestyle="-",  label="Δ = 0"),
-]
-fig.legend(handles=backbone_handles + line_handles,
-           loc="lower center", ncol=7, fontsize=10,
-           bbox_to_anchor=(0.5, -0.08), frameon=False)
+handles = [Line2D([0], [0], color=COLORS[b], lw=2.5, label=b) for b in BACKBONES]
+handles += [Line2D([0], [0], color="0.4", lw=1.2, ls="--", label="Mean"),
+            Line2D([0], [0], color="black", lw=1.6, label="Δ = 0")]
+fig.legend(handles=handles, loc="lower center", ncol=6, frameon=False,
+           fontsize=9.5, bbox_to_anchor=(0.5, -0.04))
 
-plt.tight_layout()
-out_path = OUT_DIR / "fig_delta_distributions.png"
-plt.savefig(out_path, dpi=150, bbox_inches="tight")
-print(f"Saved: {out_path}")
-plt.close()
+fig.suptitle("Distribution of  Δ = Random PSNR − Block PSNR  per Chip\n"
+             "Peak right of 0 → block harder   |   Peak left of 0 → random harder",
+             y=1.04, fontsize=12)
+fig.tight_layout()
+out = FIG_DIR / "fig_delta_distributions.png"
+fig.savefig(out, bbox_inches="tight")
+print(f"Wrote {out}")
