@@ -1,0 +1,32 @@
+"""
+random_masker.py
+-----------------
+Scattered random mask in PATCH space, matching build_block_noise_mask's exact
+noise convention (torch.rand backgrounds, not hard 0/1 ties) so random vs
+block are a fair, apples-to-apples comparison under the same tie-breaking
+behavior as TerraTorch's random_masking().
+"""
+import torch
+
+def build_random_noise_mask(mask_ratio, patch_size=16, img_size=224,
+                             num_frames=3, frame_idx=1, trial_seed=None):
+    rng = torch.Generator()
+    if trial_seed is not None:
+        rng.manual_seed(trial_seed)
+    grid_h = grid_w = img_size // patch_size
+    patches_per_frame = grid_h * grid_w
+    total_tokens = num_frames * patches_per_frame
+    n_mask_target = int(round(mask_ratio * patches_per_frame))
+    n_mask_target = max(1, min(n_mask_target, patches_per_frame - 1))
+    frame_offset = frame_idx * patches_per_frame
+
+    perm = torch.randperm(patches_per_frame, generator=rng)
+    masked_local = perm[:n_mask_target]
+    masked_global = masked_local + frame_offset
+
+    noise = torch.rand(total_tokens, generator=rng)
+    noise[masked_global] = 2.0
+    ids_restore = torch.argsort(torch.argsort(noise))
+    n_keep = total_tokens - len(masked_global)
+    ids_keep = torch.argsort(noise)[:n_keep]
+    return noise, ids_keep, ids_restore

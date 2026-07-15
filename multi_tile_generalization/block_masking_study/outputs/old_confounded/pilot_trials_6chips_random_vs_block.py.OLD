@@ -1,0 +1,104 @@
+"""
+6-chip comparison: random vs block PSNR, 50 trials per chip x ratio.
+Chips: rank 1, 2 (complex), rank 250, 251 (medium), rank 499, 500 (simple).
+Random columns placed LEFT of block columns in the summary output.
+"""
+import os, sys, csv, warnings
+import numpy as np, torch, rasterio
+warnings.filterwarnings("ignore")
+ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "../../.."))
+sys.path.insert(0, ROOT)
+sys.path.insert(0, os.path.join(ROOT, "patch_masking_study"))
+from patch_masking_study.terratorch_loader import load_prithvi_from_terratorch, run_masked_forward
+
+# chip, rank, role — kept together so output can be labeled clearly
+CHIPS = [
+    ("chip_140_470_merged.tif", 1,   "complex_rank1_new"),
+    ("chip_217_425_merged.tif", 2,   "complex_rank2_original"),
+    ("chip_182_606_merged.tif", 250, "medium_rank250_new"),
+    ("chip_268_410_merged.tif", 251, "medium_rank251_original"),
+    ("chip_282_562_merged.tif", 499, "simple_rank499_new_FLAGGED_cloud_contamination"),
+    ("chip_105_452_merged.tif", 500, "simple_rank500_original"),
+]
+CHIP_DIR = "multi_tile_generalization/study_chips_500"
+OUT_TRIALS  = "multi_tile_generalization/block_masking_study/outputs/pilot_trials_6chips_random_vs_block.csv"
+OUT_SUMMARY = "multi_tile_generalization/block_masking_study/outputs/pilot_summary_6chips_random_vs_block.csv"
+BDIR, CKPT = "~/Prithvi/prithvi_600M", "Prithvi_EO_V2_600M_TL.pt"
+RATIOS = [0.2, 0.4, 0.6, 0.8]
+N_TRIALS = 50
+DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
+os.makedirs(os.path.dirname(OUT_TRIALS), exist_ok=True)
+
+def load_chip(path):
+    with rasterio.open(os.path.expanduser(path)) as src:
+        return src.read().astype(np.float32)
+
+def block_noise(n_tokens, ratio, grid, seed):
+    rng = np.random.default_rng(seed)
+    n_t = grid*grid; off = grid*grid
+    bh = max(1, int(round((ratio*n_t)**0.5)))
+    bw = max(1, int(round(ratio*n_t/bh)))
+    bh, bw = min(bh, grid), min(bw, grid)
+    r0 = rng.integers(0, grid-bh+1); c0 = rng.integers(0, grid-bw+1)
+    idx = [off+(r0+dr)*grid+(c0+dc) for dr in range(bh) for dc in range(bw)]
+    noise = np.zeros(n_tokens); noise[idx] = 1.0
+    return noise, idx
+
+def random_noise(n_tokens, ratio, grid, seed):
+    rng = np.random.default_rng(seed)
+    n_t = grid*grid; off = grid*grid
+    n_mask = int(round(ratio*n_t))
+    idx_local = rng.choice(n_t, size=n_mask, replace=False)
+    idx = [off + int(i) for i in idx_local]
+    noise = np.zeros(n_tokens); noise[idx] = 1.0
+    return noise, idx
+
+def psnr(a, b):
+    mse = np.mean((a-b)**2)
+    return 99.0 if mse == 0 else 20*np.log10(1.0/np.sqrt(mse))
+
+model, _, mean, std, ps = load_prithvi_from_terratorch(
+    backbone_name="prithvi_eo_v2_600", base_dir=os.path.expanduser(BDIR),
+    checkpoint_filename=CKPT, num_frames=3, device=DEVICE)
+model.eval()
+grid = 224//ps; n_tokens = 3*grid*grid
+m = np.tile(np.array(mean,dtype=np.float32),3).reshape(-1,1,1)
+s = np.tile(np.array(std,dtype=np.float32),3).reshape(-1,1,1)
+mc = np.array(mean,dtype=np.float32).reshape(-1,1,1)
+sc = np.array(std,dtype=np.float32).reshape(-1,1,1)
+
+rows = []
+for chip, rank, role in CHIPS:
+    raw = load_chip(f"{CHIP_DIR}/{chip}")
+    norm = (raw - m)/(s+1e-6)
+    x = torch.tensor(norm).reshape(3,6,224,224).permute(1,0,2,3).unsqueeze(0).to(DEVICE)
+    gt = raw[6:12]  # summer, raw HLS
+    gtn = gt/10000.0
+    for ratio in RATIOS:
+        for mtype, noise_fn in [("random", random_noise), ("block", block_noise)]:
+            for t in range(N_TRIALS):
+                noise, idx = noise_fn(n_tokens, ratio, grid, seed=t)
+                nt = torch.tensor(noise).unsqueeze(0).to(DEVICE)
+                with torch.no_grad():
+                    out = run_masked_forward(model, x, None, None, ratio, nt)
+                rec = out[2].squeeze(0).cpu().numpy()
+                rec_summer = rec[:,1]*sc + mc
+                rcn = np.clip(rec_summer/10000.0, 0, 1)
+                rows.append(dict(chip=chip, rank=rank, role=role, ratio=ratio,
+                                  mask_type=mtype, trial=t, psnr=round(psnr(gtn, rcn), 4)))
+            print(f"{chip} (rank {rank}) {int(ratio*100)}% {mtype} done")
+
+with open(OUT_TRIALS, "w", newline="") as f:
+    w = csv.DictWriter(f, fieldnames=rows[0].keys()); w.writeheader(); w.writerows(rows)
+print("Wrote", OUT_TRIALS)
+
+# ── summary: mean PSNR per chip x ratio, random LEFT of block ──────────────
+import pandas as pd
+df = pd.DataFrame(rows)
+piv = df.pivot_table(index=["chip","rank","role","ratio"], columns="mask_type", values="psnr", aggfunc="mean").reset_index()
+piv = piv[["chip","rank","role","ratio","random","block"]]  # random explicitly left of block
+piv["delta_random_minus_block"] = piv["random"] - piv["block"]
+piv = piv.sort_values(["rank","ratio"])
+piv.to_csv(OUT_SUMMARY, index=False)
+print("Wrote", OUT_SUMMARY)
+print(piv.to_string(index=False))
