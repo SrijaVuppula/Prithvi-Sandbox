@@ -2,7 +2,7 @@
 build_sanity_check.py
 ----------------------------
 Builds the sanity check Excel workbook from the paired block-vs-random
-results (results_fixed_{backbone}.csv), which contain matched
+results (results_{backbone}.csv), which contain matched
 block_psnr / random_psnr / delta_rand_minus_block per chip x ratio x trial
 (5 trials per chip x ratio, averaged here).
 
@@ -37,7 +37,7 @@ def main():
     all_frames = []
 
     for bb in BACKBONES:
-        csv_path = IN_DIR / f"results_fixed_{bb}.csv"
+        csv_path = IN_DIR / f"results_{bb}.csv"
         if not csv_path.exists():
             raise FileNotFoundError(f"Missing {csv_path} -- run run_paired_block_random.py first")
 
