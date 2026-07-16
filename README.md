@@ -15,6 +15,8 @@ Prithvi was pretrained to reconstruct scattered patches. Reconstructing a whole 
 ---
 
 ## Repository structure
+
+```
 Prithvi-Sandbox/
 ├── baseline_study/                  # Zero-shot temporal gap filling across conditions (single tile)
 │   ├── data/                        #   hls_loader.py
@@ -60,6 +62,8 @@ Prithvi-Sandbox/
 │   └── 04_real_cloud_masks/         #   (planned)
 │
 └── docs_and_reference/              # Original Prithvi inference scripts and reference material
+```
+
 ---
 
 ## Data
