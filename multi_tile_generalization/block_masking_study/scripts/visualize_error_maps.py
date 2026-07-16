@@ -4,12 +4,25 @@ visualize_error_maps.py
 Generates 4 separate figures (one per mask ratio: 20%, 40%, 60%, 80%).
 Each figure: 2 rows (Random, Block) x 3 columns (Ground Truth, Reconstructed RGB, Error Table).
 Error Table = 16x16 grid of colored cells with per-patch error value printed inside.
+
+FIXED 2026-07-16: masking now uses temporal_gap_masker.build_block_noise_mask /
+build_random_noise_mask instead of this script's own local noise builders (old
+Bug 1: nominal ratio passed straight through to TerraTorch's GLOBAL len_keep,
+letting spring/fall context erode as ratio rose).
+
+MULTI-TRIAL 2026-07-16: single-trial PSNR is noisy and can show a misleading
+crossover on one chip (flagged after the original Session 11 run showed block
+"easier" than random at 20% on chip_217_425 -- consistent with the population-
+level crossover artifact, not necessarily real). Now runs --n_trials (default
+50, matching the project's adopted standard for random-masking variance) per
+ratio per chip, reporting mean+-std PSNR/delta across trials. The rendered
+images/error tables still come from ONE representative trial (trial 0) --
+this script's purpose is a concrete visual example, not a distribution plot.
 """
 
 import argparse
 import sys
 import json
-import random
 import numpy as np
 import matplotlib
 matplotlib.use("Agg")
@@ -22,13 +35,17 @@ from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
 sys.path.insert(0, str(REPO_ROOT))
+sys.path.insert(0, str(REPO_ROOT / "multi_tile_generalization" / "block_masking_study" / "masking"))
 
 from patch_masking_study.terratorch_loader import load_prithvi_from_terratorch, run_masked_forward
+from temporal_gap_masker import build_block_noise_mask, build_random_noise_mask
 
 RATIOS       = [0.20, 0.40, 0.60, 0.80]
 RATIO_LABELS = ["20", "40", "60", "80"]
 RGB_BANDS    = [2, 1, 0]
 FRAME_IDX    = 1
+N_FRAMES     = 3
+IMG_SIZE     = 224
 SEED         = 42
 
 
@@ -54,35 +71,16 @@ def make_rgb(frame_np, percentile=2):
     return out
 
 
-def build_random_noise(tokens_per_frame, mask_ratio, device, frame_idx=1, n_frames=3):
-    n_tokens    = n_frames * tokens_per_frame
-    n_mask      = int(tokens_per_frame * mask_ratio)
-    noise       = torch.rand(n_tokens, device=device) * 0.1
-    frame_start = frame_idx * tokens_per_frame
-    perm        = torch.randperm(tokens_per_frame, device=device)[:n_mask]
-    noise[frame_start + perm] = 0.9 + torch.rand(n_mask, device=device) * 0.1
-    return noise.unsqueeze(0)
-
-
-def build_block_noise(tokens_per_frame, mask_ratio, patch_size, device,
-                      frame_idx=1, n_frames=3, seed=0):
-    rng      = random.Random(seed)
-    grid     = 224 // patch_size
-    n_target = int(grid * grid * mask_ratio)
-    bh = max(1, int(n_target ** 0.5))
-    bw = max(1, (n_target + bh - 1) // bh)
-    bh = min(bh, grid)
-    bw = min(bw, grid)
-    top  = rng.randint(0, max(0, grid - bh))
-    left = rng.randint(0, max(0, grid - bw))
-    block_idx   = [(top + r) * grid + (left + c) for r in range(bh) for c in range(bw)]
-    n_tokens    = n_frames * tokens_per_frame
-    noise       = torch.zeros(n_tokens, device=device)          # all zero
-    frame_start = frame_idx * tokens_per_frame
-    idx_t       = torch.tensor(block_idx, device=device)
-    noise[frame_start + idx_t] = 1.0                            # block = exactly 1.0
-    actual_ratio = len(block_idx) / (grid * grid)
-    return noise.unsqueeze(0), top, left, bh, bw, actual_ratio
+def bbox_from_masked_global(masked_global, frame_idx, grid, tokens_per_frame):
+    """Recover (top, left, bh, bw) in patch-grid coords from the masker's
+    global token indices. Only valid for a contiguous rectangular block."""
+    offset = frame_idx * tokens_per_frame
+    local = (masked_global - offset).cpu().numpy()
+    rows = local // grid
+    cols = local % grid
+    top, left = int(rows.min()), int(cols.min())
+    bh, bw = int(rows.max() - rows.min() + 1), int(cols.max() - cols.min() + 1)
+    return top, left, bh, bw
 
 
 def run_forward(model, chip_norm, noise, mask_ratio, mean_hls, std_hls, device, frame_idx=1):
@@ -115,12 +113,12 @@ def compute_patch_errors(err_hw, patch_size, grid):
     return table
 
 
-def draw_error_table(ax, table, psnr_val, vmax, patch_size,
-                     block_rect=None, title_prefix=""):
+def draw_error_table(ax, table, vmax, patch_size, block_rect=None, title=""):
     """
     Draw a grid-of-cells table where each cell is colored by error value
     and has the numeric value printed inside.
     block_rect: (top, left, bh, bw) in patch-grid coords
+    title: full pre-built title string (caller controls content/lines).
     """
     grid = table.shape[0]
     cmap = plt.cm.hot
@@ -137,7 +135,6 @@ def draw_error_table(ax, table, psnr_val, vmax, patch_size,
             val  = table[pr, pc]
             color = cmap(norm(val))
 
-            # filled cell
             rect = mpatches.FancyBboxPatch(
                 (pc, pr), 1, 1,
                 boxstyle="square,pad=0",
@@ -147,7 +144,6 @@ def draw_error_table(ax, table, psnr_val, vmax, patch_size,
             )
             ax.add_patch(rect)
 
-            # text colour: white on dark cells, black on bright cells
             brightness = 0.299*color[0] + 0.587*color[1] + 0.114*color[2]
             txt_color  = "white" if brightness < 0.55 else "black"
 
@@ -161,7 +157,6 @@ def draw_error_table(ax, table, psnr_val, vmax, patch_size,
                         )
                     ])
 
-    # cyan block boundary
     if block_rect is not None:
         bt, bl, bh, bw = block_rect
         border = mpatches.FancyBboxPatch(
@@ -173,14 +168,12 @@ def draw_error_table(ax, table, psnr_val, vmax, patch_size,
         )
         ax.add_patch(border)
 
-    # colourbar
     sm = plt.cm.ScalarMappable(cmap=cmap, norm=norm)
     sm.set_array([])
     cb = plt.colorbar(sm, ax=ax, fraction=0.046, pad=0.04, format="%.3f")
     cb.ax.tick_params(colors="white", labelsize=7)
 
-    ax.set_title(f"{title_prefix}PSNR: {psnr_val:.1f} dB",
-                 color="yellow", fontsize=11, fontweight="bold", pad=6)
+    ax.set_title(title, color="yellow", fontsize=10, fontweight="bold", pad=6)
 
 
 def draw_rgb(ax, rgb_img, title="", block_rect=None, patch_size=14):
@@ -200,6 +193,7 @@ def draw_rgb(ax, rgb_img, title="", block_rect=None, patch_size=14):
 def main(args):
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     print(f"Device: {device}")
+    print(f"Trials per ratio: {args.n_trials}")
 
     chip_np      = load_chip(args.chip_path)
     ground_truth = chip_np[FRAME_IDX]
@@ -230,49 +224,75 @@ def main(args):
     out_dir = Path(args.output_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
 
-    torch.manual_seed(SEED)
-
     for row_idx, (ratio, label) in enumerate(zip(RATIOS, RATIO_LABELS)):
-        print(f"\nGenerating figure for {label}% masking...")
+        print(f"\nGenerating figure for {label}% masking ({args.n_trials} trials)...")
 
-        # random
-        noise_rand = build_random_noise(tokens_per_frame, ratio, device, frame_idx=FRAME_IDX)
-        with torch.no_grad():
-            recon_rand = run_forward(model, chip_norm, noise_rand, ratio,
-                                     mean_hls, std_hls, device, FRAME_IDX)
-        err_rand   = np.mean(np.abs(gt_01 - recon_rand), axis=0)
-        table_rand = compute_patch_errors(err_rand, patch_size, grid)
-        psnr_rand  = compute_psnr(err_rand)
+        rand_psnrs, block_psnrs, deltas = [], [], []
+        rep = None  # representative trial (trial 0) data, for drawing
 
-        # block
-        noise_block, bt, bl, bh, bw, actual_ratio = build_block_noise(
-            tokens_per_frame, ratio, patch_size, device,
-            frame_idx=FRAME_IDX, seed=SEED + row_idx)
-        with torch.no_grad():
-            recon_block = run_forward(model, chip_norm, noise_block, actual_ratio,
-                                      mean_hls, std_hls, device, FRAME_IDX)
-        err_block   = np.mean(np.abs(gt_01 - recon_block), axis=0)
-        table_block = compute_patch_errors(err_block, patch_size, grid)
-        psnr_block  = compute_psnr(err_block)
+        for t in range(args.n_trials):
+            trial_seed = SEED + row_idx * 10000 + t
 
-        vmax = max(table_rand.max(), table_block.max(), 0.001)
+            noise_block, gratio_block, idx_block = build_block_noise_mask(
+                ratio, patch_size=patch_size, img_size=IMG_SIZE, num_frames=N_FRAMES,
+                frame_idx=FRAME_IDX, trial_seed=trial_seed)
+            noise_rand, gratio_rand, idx_rand = build_random_noise_mask(
+                ratio, patch_size=patch_size, img_size=IMG_SIZE, num_frames=N_FRAMES,
+                frame_idx=FRAME_IDX, trial_seed=trial_seed, n_summer_masked=len(idx_block))
+            assert abs(gratio_block - gratio_rand) < 1e-9, "block/random ratio mismatch"
 
-        # ── figure: 2 rows x 3 cols ──────────────────────────────────────────
+            with torch.no_grad():
+                recon_rand = run_forward(model, chip_norm, noise_rand.unsqueeze(0), gratio_rand,
+                                         mean_hls, std_hls, device, FRAME_IDX)
+            err_rand  = np.mean(np.abs(gt_01 - recon_rand), axis=0)
+            psnr_rand = compute_psnr(err_rand)
+
+            with torch.no_grad():
+                recon_block = run_forward(model, chip_norm, noise_block.unsqueeze(0), gratio_block,
+                                          mean_hls, std_hls, device, FRAME_IDX)
+            err_block  = np.mean(np.abs(gt_01 - recon_block), axis=0)
+            psnr_block = compute_psnr(err_block)
+
+            rand_psnrs.append(psnr_rand)
+            block_psnrs.append(psnr_block)
+            deltas.append(psnr_rand - psnr_block)
+
+            if t == 0:
+                bt, bl, bh, bw = bbox_from_masked_global(idx_block, FRAME_IDX, grid, tokens_per_frame)
+                rep = dict(
+                    recon_rand=recon_rand, recon_block=recon_block,
+                    table_rand=compute_patch_errors(err_rand, patch_size, grid),
+                    table_block=compute_patch_errors(err_block, patch_size, grid),
+                    psnr_rand=psnr_rand, psnr_block=psnr_block,
+                    bt=bt, bl=bl, bh=bh, bw=bw,
+                )
+
+        rand_arr  = np.array(rand_psnrs)
+        block_arr = np.array(block_psnrs)
+        delta_arr = np.array(deltas)
+        pct_block_harder = (delta_arr > 0).mean() * 100
+
+        print(f"  random = {rand_arr.mean():.2f}±{rand_arr.std():.2f} dB, "
+              f"block = {block_arr.mean():.2f}±{block_arr.std():.2f} dB, "
+              f"delta = {delta_arr.mean():+.2f}±{delta_arr.std():.2f} dB, "
+              f"{pct_block_harder:.0f}% of trials block harder")
+
+        vmax = max(rep["table_rand"].max(), rep["table_block"].max(), 0.001)
+
         fig = plt.figure(figsize=(22, 14))
         fig.patch.set_facecolor("#1a1a2e")
 
-        # use gridspec so error table gets more width
         import matplotlib.gridspec as gridspec
         gs = gridspec.GridSpec(2, 3, figure=fig,
                                width_ratios=[1, 1, 1.35],
-                               hspace=0.35, wspace=0.15)
+                               hspace=0.4, wspace=0.15)
 
         axes = [[fig.add_subplot(gs[r, c]) for c in range(3)] for r in range(2)]
 
         fig.suptitle(
             f"600M  —  Mask Ratio {label}%  |  Random (top) vs Block (bottom)\n"
-            f"Col 3: per-patch mean error table  |  each cell = mean |GT−Recon| "
-            f"over {patch_size}×{patch_size} pixels  |  cyan = block boundary",
+            f"Ground truth / reconstruction / error table from representative trial 0  |  "
+            f"cyan = block boundary  |  corrected masking: spring/fall 100% visible, matched patch count",
             color="white", fontsize=12, fontweight="bold", y=1.01
         )
 
@@ -281,20 +301,24 @@ def main(args):
             axes[r][0].set_ylabel(rl, color="white", fontsize=13,
                                   fontweight="bold", rotation=90, labelpad=10)
 
+        title_rand = (f"Random — trial 0: {rep['psnr_rand']:.1f} dB\n"
+                      f"mean±std (n={args.n_trials}): {rand_arr.mean():.1f}±{rand_arr.std():.1f} dB")
+        title_block = (f"Block — trial 0: {rep['psnr_block']:.1f} dB\n"
+                       f"mean±std (n={args.n_trials}): {block_arr.mean():.1f}±{block_arr.std():.1f} dB  "
+                       f"({pct_block_harder:.0f}% trials block harder)")
+
         # Row 0 — Random
         draw_rgb(axes[0][0], gt_rgb, title="Ground Truth")
-        draw_rgb(axes[0][1], make_rgb(recon_rand * 10000.0), title="Reconstructed")
-        draw_error_table(axes[0][2], table_rand, psnr_rand, vmax,
-                         patch_size, block_rect=None,
-                         title_prefix="Random — ")
+        draw_rgb(axes[0][1], make_rgb(rep["recon_rand"] * 10000.0), title="Reconstructed (trial 0)")
+        draw_error_table(axes[0][2], rep["table_rand"], vmax, patch_size,
+                         block_rect=None, title=title_rand)
 
         # Row 1 — Block
         draw_rgb(axes[1][0], gt_rgb, title="Ground Truth")
-        draw_rgb(axes[1][1], make_rgb(recon_block * 10000.0), title="Reconstructed",
-                 block_rect=(bt, bl, bh, bw), patch_size=patch_size)
-        draw_error_table(axes[1][2], table_block, psnr_block, vmax,
-                         patch_size, block_rect=(bt, bl, bh, bw),
-                         title_prefix="Block — ")
+        draw_rgb(axes[1][1], make_rgb(rep["recon_block"] * 10000.0), title="Reconstructed (trial 0)",
+                 block_rect=(rep["bt"], rep["bl"], rep["bh"], rep["bw"]), patch_size=patch_size)
+        draw_error_table(axes[1][2], rep["table_block"], vmax, patch_size,
+                         block_rect=(rep["bt"], rep["bl"], rep["bh"], rep["bw"]), title=title_block)
 
         out_path = out_dir / f"error_table_mask{label}pct.png"
         fig.savefig(out_path, dpi=180, bbox_inches="tight",
@@ -310,5 +334,6 @@ if __name__ == "__main__":
     parser.add_argument("--chip_path",    required=True)
     parser.add_argument("--backbone_dir", required=True)
     parser.add_argument("--output_dir",   default="outputs/figures")
+    parser.add_argument("--n_trials",     type=int, default=50)
     args = parser.parse_args()
     main(args)
