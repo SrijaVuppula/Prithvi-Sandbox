@@ -44,7 +44,7 @@ def trimmed_mean(x, pct=0.05):
 def main():
     apply_style()
 
-    df = pd.read_csv(IN_DIR / f"results_fixed_{BACKBONE}.csv")
+    df = pd.read_csv(IN_DIR / f"results_{BACKBONE}.csv")
     agg = (df.groupby(["chip", "mask_ratio"], as_index=False)
              .agg(block_psnr=("block_psnr", "mean"),
                   random_psnr=("random_psnr", "mean")))
