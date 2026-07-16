@@ -7,7 +7,7 @@ Full paired block-vs-random rerun with CORRECTED maskers
 500 study chips x 4 ratios x 4 backbones x 5 trials x 2 maskers.
 Uses study_chips_500/ (the canonical set, merged files only) so results are
 chip-for-chip comparable to the old results_*.csv.
-Writes outputs/results_fixed_{backbone}.csv. Per-row flush + resume.
+Writes outputs/results_{backbone}.csv. Per-row flush + resume.
 
 Run inside tmux from repo root with the venv active.
 """
@@ -123,7 +123,7 @@ def main():
     for bb, bcfg in cfg["backbones"].items():
         ckpt = expand(bcfg["checkpoint"])
         patch = bcfg["patch_size"]
-        csv_path = out_dir / f"results_fixed_{bb}.csv"
+        csv_path = out_dir / f"results_{bb}.csv"
         done = load_done(csv_path)
         print(f"\n{'='*60}\n{bb}  patch={patch}  (already done: {len(done)})\n{'='*60}")
 
