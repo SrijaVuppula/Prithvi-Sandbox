@@ -41,6 +41,7 @@ for bb in BACKBONES:
     ax.plot(x, d, color=c, marker=MARKERS[bb], ms=6, lw=2.0, label=bb, zorder=3)
 
 ax.axhline(0, color="0.25", lw=1.1, ls="--", zorder=2)
+ax.set_title("Masking Difficulty Gap: Random vs. Block Occlusion", fontsize=11, pad=10)
 
 ax.set_xlabel("Mask Ratio (%)")
 ax.set_ylabel("Δ PSNR  (random − block, dB)")
@@ -49,7 +50,7 @@ ax.set_xlim(14, 86)
 ax.set_ylim(*YLIM)
 ax.grid(axis="y", alpha=0.25, lw=0.6)
 ax.grid(axis="x", visible=False)
-ax.legend(title="backbone", loc="upper right", frameon=False)
+ax.legend(title="Backbone", loc="upper right", frameon=False)
 
 fig.tight_layout()
 out = FIG_DIR / "fig_difficulty_gap.png"
