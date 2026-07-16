@@ -1,5 +1,5 @@
 """
-plot_block_bars.py
+plot_random_vs_block.py
 ------------------
 Grouped bars: block vs random PSNR by backbone, faceted by mask ratio.
 Corrected paired data. Bars start at 0 (honest length encoding); the Δ label
