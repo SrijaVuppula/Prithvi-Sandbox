@@ -1,0 +1,26 @@
+Device: cuda
+Loading 600M model...
+  [TerraTorch] Loaded prithvi_eo_v2_600 (3 frames) patch=14 on cuda
+
+=== chip_075_347 ===
+  BEFORE (natural diff, whole frame): spring->summer=0.0809  summer->fall=0.1074
+  ratio=20% | AFTER block=0.0034+/-0.0004 | AFTER random=0.0025+/-0.0001
+  ratio=40% | AFTER block=0.0073+/-0.0004 | AFTER random=0.0051+/-0.0001
+  ratio=60% | AFTER block=0.0115+/-0.0003 | AFTER random=0.0081+/-0.0001
+  ratio=80% | AFTER block=0.0162+/-0.0006 | AFTER random=0.0127+/-0.0003
+
+=== chip_282_263 ===
+  BEFORE (natural diff, whole frame): spring->summer=0.0574  summer->fall=0.1116
+  ratio=20% | AFTER block=0.0034+/-0.0006 | AFTER random=0.0016+/-0.0001
+  ratio=40% | AFTER block=0.0095+/-0.0002 | AFTER random=0.0033+/-0.0001
+  ratio=60% | AFTER block=0.0129+/-0.0016 | AFTER random=0.0059+/-0.0002
+  ratio=80% | AFTER block=0.0214+/-0.0016 | AFTER random=0.0113+/-0.0005
+
+=== chip_064_354 ===
+  BEFORE (natural diff, whole frame): spring->summer=0.0823  summer->fall=0.0749
+  ratio=20% | AFTER block=0.0037+/-0.0004 | AFTER random=0.0024+/-0.0001
+  ratio=40% | AFTER block=0.0076+/-0.0004 | AFTER random=0.0048+/-0.0002
+  ratio=60% | AFTER block=0.0115+/-0.0001 | AFTER random=0.0081+/-0.0001
+  ratio=80% | AFTER block=0.0175+/-0.0013 | AFTER random=0.0124+/-0.0004
+
+Done.
