@@ -1,23 +1,11 @@
 """
 visualize_error_maps.py
 
-Generates 4 separate figures (one per mask ratio: 20%, 40%, 60%, 80%).
-Each figure: 2 rows (Random, Block) x 3 columns (Ground Truth, Reconstructed RGB, Error Table).
-Error Table = 16x16 grid of colored cells with per-patch error value printed inside.
-
-FIXED 2026-07-16: masking now uses temporal_gap_masker.build_block_noise_mask /
-build_random_noise_mask instead of this script's own local noise builders (old
-Bug 1: nominal ratio passed straight through to TerraTorch's GLOBAL len_keep,
-letting spring/fall context erode as ratio rose).
-
-MULTI-TRIAL 2026-07-16: single-trial PSNR is noisy and can show a misleading
-crossover on one chip (flagged after the original Session 11 run showed block
-"easier" than random at 20% on chip_217_425 -- consistent with the population-
-level crossover artifact, not necessarily real). Now runs --n_trials (default
-50, matching the project's adopted standard for random-masking variance) per
-ratio per chip, reporting mean+-std PSNR/delta across trials. The rendered
-images/error tables still come from ONE representative trial (trial 0) --
-this script's purpose is a concrete visual example, not a distribution plot.
+Generates one figure per (chip, mask ratio) combination.
+Each figure: 2 rows (Random, Block) x 6 columns
+  (Spring, Fall, Summer Ground Truth, Masked Input, Reconstructed, Error Table).
+Spring/Fall are the always-visible temporal context frames (never masked).
+Error Table = grid of colored cells with per-patch error value printed inside.
 """
 
 import argparse
@@ -29,6 +17,7 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import matplotlib.patches as mpatches
 import matplotlib.patheffects as pe
+import matplotlib.gridspec as gridspec
 import torch
 import rasterio
 from pathlib import Path
@@ -40,13 +29,14 @@ sys.path.insert(0, str(REPO_ROOT / "multi_tile_generalization" / "block_masking_
 from patch_masking_study.terratorch_loader import load_prithvi_from_terratorch, run_masked_forward
 from temporal_gap_masker import build_block_noise_mask, build_random_noise_mask
 
-RATIOS       = [0.20, 0.40, 0.60, 0.80]
-RATIO_LABELS = ["20", "40", "60", "80"]
+RATIOS_ALL   = [0.20, 0.40, 0.60, 0.80]
 RGB_BANDS    = [2, 1, 0]
-FRAME_IDX    = 1
+FRAME_IDX    = 1   # summer = target
 N_FRAMES     = 3
 IMG_SIZE     = 224
 SEED         = 42
+MASK_FILL    = 30
+DEFAULT_CHIPS = ["chip_075_347", "chip_282_263", "chip_064_354"]
 
 
 def load_chip(chip_path):
@@ -71,16 +61,33 @@ def make_rgb(frame_np, percentile=2):
     return out
 
 
-def bbox_from_masked_global(masked_global, frame_idx, grid, tokens_per_frame):
-    """Recover (top, left, bh, bw) in patch-grid coords from the masker's
-    global token indices. Only valid for a contiguous rectangular block."""
+def masked_patch_grid(masked_global, frame_idx, grid, tokens_per_frame):
     offset = frame_idx * tokens_per_frame
     local = (masked_global - offset).cpu().numpy()
     rows = local // grid
     cols = local % grid
+    mask_grid = np.zeros((grid, grid), dtype=bool)
+    mask_grid[rows, cols] = True
+    return mask_grid
+
+
+def bbox_from_mask_grid(mask_grid):
+    rows, cols = np.where(mask_grid)
     top, left = int(rows.min()), int(cols.min())
     bh, bw = int(rows.max() - rows.min() + 1), int(cols.max() - cols.min() + 1)
     return top, left, bh, bw
+
+
+def render_masked_rgb(rgb_img, mask_grid, patch_size):
+    out = rgb_img.copy()
+    grid = mask_grid.shape[0]
+    for r in range(grid):
+        for c in range(grid):
+            if mask_grid[r, c]:
+                y0, y1 = r * patch_size, (r + 1) * patch_size
+                x0, x1 = c * patch_size, (c + 1) * patch_size
+                out[y0:y1, x0:x1] = MASK_FILL
+    return out
 
 
 def run_forward(model, chip_norm, noise, mask_ratio, mean_hls, std_hls, device, frame_idx=1):
@@ -95,7 +102,7 @@ def run_forward(model, chip_norm, noise, mask_ratio, mean_hls, std_hls, device, 
     mean_t    = torch.tensor(mean_hls, dtype=torch.float32).reshape(-1, 1, 1)
     std_t     = torch.tensor(std_hls,  dtype=torch.float32).reshape(-1, 1, 1)
     pred_unit = torch.clamp((pred_norm * std_t + mean_t) / 10000.0, 0.0, 1.0)
-    return pred_unit.numpy()  # (C, H, W) in [0,1]
+    return pred_unit.numpy()
 
 
 def compute_psnr(err_map):
@@ -104,7 +111,6 @@ def compute_psnr(err_map):
 
 
 def compute_patch_errors(err_hw, patch_size, grid):
-    """Compute mean error per patch cell → (grid, grid) array."""
     table = np.zeros((grid, grid), dtype=np.float32)
     for pr in range(grid):
         for pc in range(grid):
@@ -114,18 +120,12 @@ def compute_patch_errors(err_hw, patch_size, grid):
 
 
 def draw_error_table(ax, table, vmax, patch_size, block_rect=None, title=""):
-    """
-    Draw a grid-of-cells table where each cell is colored by error value
-    and has the numeric value printed inside.
-    block_rect: (top, left, bh, bw) in patch-grid coords
-    title: full pre-built title string (caller controls content/lines).
-    """
     grid = table.shape[0]
     cmap = plt.cm.hot
     norm = matplotlib.colors.Normalize(vmin=0, vmax=vmax)
 
     ax.set_xlim(0, grid)
-    ax.set_ylim(grid, 0)  # top-to-bottom
+    ax.set_ylim(grid, 0)
     ax.set_aspect("equal")
     ax.axis("off")
     ax.set_facecolor("#1a1a2e")
@@ -134,37 +134,26 @@ def draw_error_table(ax, table, vmax, patch_size, block_rect=None, title=""):
         for pc in range(grid):
             val  = table[pr, pc]
             color = cmap(norm(val))
-
             rect = mpatches.FancyBboxPatch(
-                (pc, pr), 1, 1,
-                boxstyle="square,pad=0",
-                facecolor=color,
-                edgecolor="#1a1a2e",
-                linewidth=0.4,
+                (pc, pr), 1, 1, boxstyle="square,pad=0",
+                facecolor=color, edgecolor="#1a1a2e", linewidth=0.4,
             )
             ax.add_patch(rect)
-
             brightness = 0.299*color[0] + 0.587*color[1] + 0.114*color[2]
             txt_color  = "white" if brightness < 0.55 else "black"
-
             ax.text(pc + 0.5, pr + 0.5, f"{val:.3f}",
                     ha="center", va="center",
                     fontsize=3.8, color=txt_color, fontweight="bold",
-                    path_effects=[
-                        pe.withStroke(
-                            linewidth=0.5,
-                            foreground="black" if txt_color=="white" else "white"
-                        )
-                    ])
+                    path_effects=[pe.withStroke(
+                        linewidth=0.5,
+                        foreground="black" if txt_color=="white" else "white"
+                    )])
 
     if block_rect is not None:
         bt, bl, bh, bw = block_rect
         border = mpatches.FancyBboxPatch(
-            (bl, bt), bw, bh,
-            boxstyle="square,pad=0",
-            facecolor="none",
-            edgecolor="cyan",
-            linewidth=2.5,
+            (bl, bt), bw, bh, boxstyle="square,pad=0",
+            facecolor="none", edgecolor="cyan", linewidth=2.5,
         )
         ax.add_patch(border)
 
@@ -172,7 +161,6 @@ def draw_error_table(ax, table, vmax, patch_size, block_rect=None, title=""):
     sm.set_array([])
     cb = plt.colorbar(sm, ax=ax, fraction=0.046, pad=0.04, format="%.3f")
     cb.ax.tick_params(colors="white", labelsize=7)
-
     ax.set_title(title, color="yellow", fontsize=10, fontweight="bold", pad=6)
 
 
@@ -190,45 +178,29 @@ def draw_rgb(ax, rgb_img, title="", block_rect=None, patch_size=14):
     ax.set_facecolor("#1a1a2e")
 
 
-def main(args):
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    print(f"Device: {device}")
-    print(f"Trials per ratio: {args.n_trials}")
+def process_chip(chip_name, args, model, mean_hls, std_hls, patch_size, grid, tokens_per_frame, device):
+    chip_path = Path(args.chip_dir) / f"{chip_name}_merged.tif"
+    if not chip_path.exists():
+        print(f"SKIP {chip_name}: file not found at {chip_path}")
+        return
 
-    chip_np      = load_chip(args.chip_path)
+    chip_np      = load_chip(str(chip_path))
+    spring_rgb   = make_rgb(chip_np[0])
     ground_truth = chip_np[FRAME_IDX]
-
-    with open(Path(args.backbone_dir) / "config.json") as f:
-        cfg = json.load(f)
-    pcfg       = cfg["pretrained_cfg"]
-    mean_hls   = np.array(pcfg["mean"], dtype=np.float32)
-    std_hls    = np.array(pcfg["std"],  dtype=np.float32)
-    patch_size = pcfg["patch_size"][1]
-    grid       = 224 // patch_size
-    tokens_per_frame = grid * grid
-
-    print("Loading 600M model...")
-    model, _, _, _, _ = load_prithvi_from_terratorch(
-        backbone_name       = "prithvi_eo_v2_600",
-        base_dir            = args.backbone_dir,
-        checkpoint_filename = "Prithvi_EO_V2_600M_TL.pt",
-        num_frames          = 3,
-        device              = device,
-    )
-    model.eval()
-
-    chip_norm = normalise_chip(chip_np, mean_hls, std_hls)
-    gt_01     = np.clip(ground_truth / 10000.0, 0, 1)
-    gt_rgb    = make_rgb(ground_truth)
+    summer_rgb   = make_rgb(ground_truth)
+    fall_rgb     = make_rgb(chip_np[2])
+    chip_norm    = normalise_chip(chip_np, mean_hls, std_hls)
+    gt_01        = np.clip(ground_truth / 10000.0, 0, 1)
 
     out_dir = Path(args.output_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
 
-    for row_idx, (ratio, label) in enumerate(zip(RATIOS, RATIO_LABELS)):
-        print(f"\nGenerating figure for {label}% masking ({args.n_trials} trials)...")
+    for row_idx, ratio in enumerate(args.ratios):
+        label = str(int(ratio * 100))
+        print(f"\n[{chip_name}] Generating figure for {label}% masking ({args.n_trials} trials)...")
 
         rand_psnrs, block_psnrs, deltas = [], [], []
-        rep = None  # representative trial (trial 0) data, for drawing
+        rep = None
 
         for t in range(args.n_trials):
             trial_seed = SEED + row_idx * 10000 + t
@@ -258,12 +230,15 @@ def main(args):
             deltas.append(psnr_rand - psnr_block)
 
             if t == 0:
-                bt, bl, bh, bw = bbox_from_masked_global(idx_block, FRAME_IDX, grid, tokens_per_frame)
+                mask_grid_block = masked_patch_grid(idx_block, FRAME_IDX, grid, tokens_per_frame)
+                mask_grid_rand  = masked_patch_grid(idx_rand, FRAME_IDX, grid, tokens_per_frame)
+                bt, bl, bh, bw = bbox_from_mask_grid(mask_grid_block)
                 rep = dict(
                     recon_rand=recon_rand, recon_block=recon_block,
                     table_rand=compute_patch_errors(err_rand, patch_size, grid),
                     table_block=compute_patch_errors(err_block, patch_size, grid),
                     psnr_rand=psnr_rand, psnr_block=psnr_block,
+                    mask_grid_block=mask_grid_block, mask_grid_rand=mask_grid_rand,
                     bt=bt, bl=bl, bh=bh, bw=bw,
                 )
 
@@ -278,21 +253,20 @@ def main(args):
               f"{pct_block_harder:.0f}% of trials block harder")
 
         vmax = max(rep["table_rand"].max(), rep["table_block"].max(), 0.001)
+        masked_rgb_rand  = render_masked_rgb(summer_rgb, rep["mask_grid_rand"], patch_size)
+        masked_rgb_block = render_masked_rgb(summer_rgb, rep["mask_grid_block"], patch_size)
 
-        fig = plt.figure(figsize=(22, 14))
+        fig = plt.figure(figsize=(38, 14))
         fig.patch.set_facecolor("#1a1a2e")
-
-        import matplotlib.gridspec as gridspec
-        gs = gridspec.GridSpec(2, 3, figure=fig,
-                               width_ratios=[1, 1, 1.35],
+        gs = gridspec.GridSpec(2, 6, figure=fig,
+                               width_ratios=[1, 1, 1, 1, 1, 1.35],
                                hspace=0.4, wspace=0.15)
-
-        axes = [[fig.add_subplot(gs[r, c]) for c in range(3)] for r in range(2)]
+        axes = [[fig.add_subplot(gs[r, c]) for c in range(6)] for r in range(2)]
 
         fig.suptitle(
-            f"600M  —  Mask Ratio {label}%  |  Random (top) vs Block (bottom)\n"
-            f"Ground truth / reconstruction / error table from representative trial 0  |  "
-            f"cyan = block boundary  |  corrected masking: spring/fall 100% visible, matched patch count",
+            f"600M  —  {chip_name}  —  Mask Ratio {label}%  |  Random (top) vs Block (bottom)\n"
+            f"Spring / Fall (always-visible context) / Summer Ground Truth / Masked Input / Reconstructed / Error Table  |  "
+            f"representative trial 0  |  cyan = block boundary  |  gray fill = occluded patches",
             color="white", fontsize=12, fontweight="bold", y=1.01
         )
 
@@ -308,32 +282,70 @@ def main(args):
                        f"({pct_block_harder:.0f}% trials block harder)")
 
         # Row 0 — Random
-        draw_rgb(axes[0][0], gt_rgb, title="Ground Truth")
-        draw_rgb(axes[0][1], make_rgb(rep["recon_rand"] * 10000.0), title="Reconstructed (trial 0)")
-        draw_error_table(axes[0][2], rep["table_rand"], vmax, patch_size,
-                         block_rect=None, title=title_rand)
+        draw_rgb(axes[0][0], spring_rgb, title="Spring (context)")
+        draw_rgb(axes[0][1], fall_rgb, title="Fall (context)")
+        draw_rgb(axes[0][2], summer_rgb, title="Summer Ground Truth")
+        draw_rgb(axes[0][3], masked_rgb_rand, title="Masked Input (model's view)")
+        draw_rgb(axes[0][4], make_rgb(rep["recon_rand"] * 10000.0), title="Reconstructed (trial 0)")
+        draw_error_table(axes[0][5], rep["table_rand"], vmax, patch_size, block_rect=None, title=title_rand)
 
         # Row 1 — Block
-        draw_rgb(axes[1][0], gt_rgb, title="Ground Truth")
-        draw_rgb(axes[1][1], make_rgb(rep["recon_block"] * 10000.0), title="Reconstructed (trial 0)",
+        draw_rgb(axes[1][0], spring_rgb, title="Spring (context)")
+        draw_rgb(axes[1][1], fall_rgb, title="Fall (context)")
+        draw_rgb(axes[1][2], summer_rgb, title="Summer Ground Truth")
+        draw_rgb(axes[1][3], masked_rgb_block, title="Masked Input (model's view)",
                  block_rect=(rep["bt"], rep["bl"], rep["bh"], rep["bw"]), patch_size=patch_size)
-        draw_error_table(axes[1][2], rep["table_block"], vmax, patch_size,
+        draw_rgb(axes[1][4], make_rgb(rep["recon_block"] * 10000.0), title="Reconstructed (trial 0)",
+                 block_rect=(rep["bt"], rep["bl"], rep["bh"], rep["bw"]), patch_size=patch_size)
+        draw_error_table(axes[1][5], rep["table_block"], vmax, patch_size,
                          block_rect=(rep["bt"], rep["bl"], rep["bh"], rep["bw"]), title=title_block)
 
-        out_path = out_dir / f"error_table_mask{label}pct.png"
-        fig.savefig(out_path, dpi=180, bbox_inches="tight",
-                    facecolor=fig.get_facecolor())
+    (out_dir / chip_name).mkdir(parents=True, exist_ok=True)
+        out_path = out_dir / chip_name / f"mask{label}pct.png"
+        fig.savefig(out_path, dpi=180, bbox_inches="tight", facecolor=fig.get_facecolor())
         plt.close(fig)
         print(f"  Saved -> {out_path}")
+
+
+def main(args):
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    print(f"Device: {device}")
+    print(f"Chips: {args.chip_names}")
+    print(f"Ratios: {args.ratios}")
+    print(f"Trials per ratio: {args.n_trials}")
+
+    with open(Path(args.backbone_dir) / "config.json") as f:
+        cfg = json.load(f)
+    pcfg       = cfg["pretrained_cfg"]
+    mean_hls   = np.array(pcfg["mean"], dtype=np.float32)
+    std_hls    = np.array(pcfg["std"],  dtype=np.float32)
+    patch_size = pcfg["patch_size"][1]
+    grid       = 224 // patch_size
+    tokens_per_frame = grid * grid
+
+    print("Loading 600M model...")
+    model, _, _, _, _ = load_prithvi_from_terratorch(
+        backbone_name       = "prithvi_eo_v2_600",
+        base_dir            = args.backbone_dir,
+        checkpoint_filename = "Prithvi_EO_V2_600M_TL.pt",
+        num_frames          = 3,
+        device              = device,
+    )
+    model.eval()
+
+    for chip_name in args.chip_names:
+        process_chip(chip_name, args, model, mean_hls, std_hls, patch_size, grid, tokens_per_frame, device)
 
     print("\nAll figures saved.")
 
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument("--chip_path",    required=True)
-    parser.add_argument("--backbone_dir", required=True)
-    parser.add_argument("--output_dir",   default="outputs/figures")
+    parser.add_argument("--chip_names",   nargs="+", default=DEFAULT_CHIPS)
+    parser.add_argument("--chip_dir",     default="multi_tile_generalization/study_chips_500")
+    parser.add_argument("--backbone_dir", default=str(Path.home() / "Prithvi" / "prithvi_600M"))
+    parser.add_argument("--output_dir",   default="multi_tile_generalization/block_masking_study/outputs/figures")
     parser.add_argument("--n_trials",     type=int, default=50)
+    parser.add_argument("--ratios",       type=float, nargs="+", default=RATIOS_ALL)
     args = parser.parse_args()
     main(args)
