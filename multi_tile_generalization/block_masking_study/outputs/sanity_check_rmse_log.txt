@@ -1,0 +1,29 @@
+Total rows: 40000  
+
+Sanity flags:
+  NaN PSNR values:        0
+  Negative PSNR values:   0
+  Capped at 99.0 dB:      0
+  RMSE > 0.5 (extreme):   0
+
+RMSE summary (mean +/- std), by backbone and ratio:
+backbone  mask_ratio  block_rmse_mean  block_rmse_std  random_rmse_mean  random_rmse_std
+    100M      0.2000           0.0207          0.0066            0.0155           0.0040
+    100M      0.4000           0.0229          0.0072            0.0165           0.0043
+    100M      0.6000           0.0241          0.0073            0.0180           0.0048
+    100M      0.8000           0.0256          0.0078            0.0207           0.0055
+    300M      0.2000           0.0205          0.0062            0.0147           0.0036
+    300M      0.4000           0.0222          0.0068            0.0156           0.0039
+    300M      0.6000           0.0231          0.0070            0.0170           0.0044
+    300M      0.8000           0.0244          0.0074            0.0196           0.0052
+    600M      0.2000           0.0193          0.0066            0.0132           0.0033
+    600M      0.4000           0.0207          0.0068            0.0139           0.0036
+    600M      0.6000           0.0217          0.0068            0.0153           0.0040
+    600M      0.8000           0.0241          0.0076            0.0182           0.0050
+    tiny      0.2000           0.0262          0.0080            0.0191           0.0046
+    tiny      0.4000           0.0276          0.0081            0.0196           0.0047
+    tiny      0.6000           0.0287          0.0083            0.0210           0.0052
+    tiny      0.8000           0.0300          0.0087            0.0237           0.0059
+
+Saved summary -> multi_tile_generalization/block_masking_study/outputs/sanity_check_rmse_summary.csv
+Saved full per-row RMSE (all 40,000 rows) -> multi_tile_generalization/block_masking_study/outputs/sanity_check_rmse_full.csv
