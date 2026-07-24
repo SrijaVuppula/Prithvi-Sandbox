@@ -1,0 +1,79 @@
+build_block_noise_mask signature:  (mask_ratio, patch_size=16, img_size=224, num_frames=3, frame_idx=1, trial_seed=None)
+build_random_noise_mask signature: (mask_ratio, patch_size=16, img_size=224, num_frames=3, frame_idx=1, trial_seed=None, n_summer_masked=None)
+
+
+=== BLOCK | patch_size=16 | backbones: tiny, 100M, 300M | grid 14x14, 196/frame ===
+ nominal |  spring%  summer%    fall% |  global% | flag
+    5.0% |    0.00%    5.10%    0.00% |    1.70% | OK
+   10.0% |    0.00%   10.20%    0.00% |    3.40% | OK
+   15.0% |    0.00%   15.31%    0.00% |    5.10% | OK
+   20.0% |    0.00%   19.90%    0.00% |    6.63% | OK
+   30.0% |    0.00%   30.61%    0.00% |   10.20% | OK
+   40.0% |    0.00%   39.80%    0.00% |   13.27% | OK
+   50.0% |    0.00%   50.00%    0.00% |   16.67% | OK
+   60.0% |    0.00%   59.69%    0.00% |   19.90% | OK
+   70.0% |    0.00%   71.43%    0.00% |   23.81% | OK
+   80.0% |    0.00%   79.59%    0.00% |   26.53% | OK
+   90.0% |    0.00%   92.86%    0.00% |   30.95% | SUMMER MISMATCH (want 90.0%)
+   95.0% |    0.00%   92.86%    0.00% |   30.95% | SUMMER MISMATCH (want 95.0%)
+  raw min/max per frame @ 40% nominal:
+    spring: min=0.0011 max=0.8974 masked_count=0/196
+    summer: min=0.0040 max=1.0000 masked_count=78/196
+    fall: min=0.0082 max=0.8992 masked_count=0/196
+
+=== RANDOM | patch_size=16 | backbones: tiny, 100M, 300M | grid 14x14, 196/frame ===
+ nominal |  spring%  summer%    fall% |  global% | flag
+    5.0% |    0.00%    5.10%    0.00% |    1.70% | OK
+   10.0% |    0.00%   10.20%    0.00% |    3.40% | OK
+   15.0% |    0.00%   14.80%    0.00% |    4.93% | OK
+   20.0% |    0.00%   19.90%    0.00% |    6.63% | OK
+   30.0% |    0.00%   30.10%    0.00% |   10.03% | OK
+   40.0% |    0.00%   39.80%    0.00% |   13.27% | OK
+   50.0% |    0.00%   50.00%    0.00% |   16.67% | OK
+   60.0% |    0.00%   60.20%    0.00% |   20.07% | OK
+   70.0% |    0.00%   69.90%    0.00% |   23.30% | OK
+   80.0% |    0.00%   80.10%    0.00% |   26.70% | OK
+   90.0% |    0.00%   89.80%    0.00% |   29.93% | OK
+   95.0% |    0.00%   94.90%    0.00% |   31.63% | OK
+  raw min/max per frame @ 40% nominal:
+    spring: min=0.0040 max=0.8999 masked_count=0/196
+    summer: min=0.0128 max=1.0000 masked_count=78/196
+    fall: min=0.0109 max=0.8993 masked_count=0/196
+
+=== BLOCK | patch_size=14 | backbones: 600M | grid 16x16, 256/frame ===
+ nominal |  spring%  summer%    fall% |  global% | flag
+    5.0% |    0.00%    5.08%    0.00% |    1.69% | OK
+   10.0% |    0.00%   10.16%    0.00% |    3.39% | OK
+   15.0% |    0.00%   15.23%    0.00% |    5.08% | OK
+   20.0% |    0.00%   19.53%    0.00% |    6.51% | OK
+   30.0% |    0.00%   30.08%    0.00% |   10.03% | OK
+   40.0% |    0.00%   39.06%    0.00% |   13.02% | OK
+   50.0% |    0.00%   50.00%    0.00% |   16.67% | OK
+   60.0% |    0.00%   60.16%    0.00% |   20.05% | OK
+   70.0% |    0.00%   70.31%    0.00% |   23.44% | OK
+   80.0% |    0.00%   81.25%    0.00% |   27.08% | OK
+   90.0% |    0.00%   87.89%    0.00% |   29.30% | SUMMER MISMATCH (want 90.0%)
+   95.0% |    0.00%   93.75%    0.00% |   31.25% | OK
+  raw min/max per frame @ 40% nominal:
+    spring: min=0.0011 max=0.8974 masked_count=0/256
+    summer: min=0.0245 max=1.0000 masked_count=100/256
+    fall: min=0.0109 max=0.8992 masked_count=0/256
+
+=== RANDOM | patch_size=14 | backbones: 600M | grid 16x16, 256/frame ===
+ nominal |  spring%  summer%    fall% |  global% | flag
+    5.0% |    0.00%    5.08%    0.00% |    1.69% | OK
+   10.0% |    0.00%   10.16%    0.00% |    3.39% | OK
+   15.0% |    0.00%   14.84%    0.00% |    4.95% | OK
+   20.0% |    0.00%   19.92%    0.00% |    6.64% | OK
+   30.0% |    0.00%   30.08%    0.00% |   10.03% | OK
+   40.0% |    0.00%   39.84%    0.00% |   13.28% | OK
+   50.0% |    0.00%   50.00%    0.00% |   16.67% | OK
+   60.0% |    0.00%   60.16%    0.00% |   20.05% | OK
+   70.0% |    0.00%   69.92%    0.00% |   23.31% | OK
+   80.0% |    0.00%   80.08%    0.00% |   26.69% | OK
+   90.0% |    0.00%   89.84%    0.00% |   29.95% | OK
+   95.0% |    0.00%   94.92%    0.00% |   31.64% | OK
+  raw min/max per frame @ 40% nominal:
+    spring: min=0.0040 max=0.8999 masked_count=0/256
+    summer: min=0.0109 max=1.0000 masked_count=102/256
+    fall: min=0.0001 max=0.8993 masked_count=0/256
