@@ -7,3 +7,6 @@ block_masking_run.log
 multi_tile_generalization/scripts/inspect_hf_schema.py
 multi_tile_generalization/study_chips_500/
 exploratory/*/outputs/*.csv
+hyperfm_pilot/*.tar
+hyperfm_pilot/cvpr_dataset/
+hyperfm_pilot/sample_extract/
