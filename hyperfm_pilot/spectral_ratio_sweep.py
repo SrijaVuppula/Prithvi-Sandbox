@@ -11,8 +11,8 @@ from pathlib import Path
 from scipy.interpolate import interp1d
 from pace_band_wavelengths import BAND_WAVELENGTH_NM
 
-HSI_LIST = Path("hsi_diverse_20.txt")
-SCORES_CSV = Path("hsi_diverse_20_scores.csv")
+HSI_LIST = Path("hsi_diverse_100.txt")
+SCORES_CSV = Path("hsi_diverse_100_scores.csv")
 N_BANDS = 291
 RATIOS = [0.2, 0.4, 0.6, 0.8]
 N_TRIALS = 50

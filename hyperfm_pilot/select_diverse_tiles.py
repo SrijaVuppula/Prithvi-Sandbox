@@ -12,8 +12,8 @@ import numpy as np
 
 MANIFEST = Path("hsi_manifest.txt")
 TAR_PATH = Path.home() / "Prithvi" / "hyperfm_pilot" / "PACE_CLD_CLDMASK.tar"
-N_CANDIDATES = 150
-N_SELECT = 20
+N_CANDIDATES = 500
+N_SELECT = 100
 SEED = 123
 
 rng = random.Random(SEED)
@@ -52,18 +52,18 @@ while len(pick_idx) < N_SELECT:
 pick_idx = sorted(pick_idx[:N_SELECT])
 selected = [scores[i] for i in pick_idx]
 
-with open("hsi_diverse_20.txt", "w") as f:
+with open("hsi_diverse_100.txt", "w") as f:
     for tf, _, _ in selected:
         f.write(tf + "\n")
 
-with open("hsi_diverse_20_scores.csv", "w") as f:
+with open("hsi_diverse_100_scores.csv", "w") as f:
     f.write("tile,variance_score,mean_radiance\n")
     for tf, sc, mv in selected:
         f.write(f"{tf},{sc:.5f},{mv:.5f}\n")
 
 print(f"\nSelected {len(selected)} tiles spanning variance range "
       f"{selected[0][1]:.4f} to {selected[-1][1]:.4f}")
-print("Saved: hsi_diverse_20.txt, hsi_diverse_20_scores.csv")
+print("Saved: hsi_diverse_100.txt, hsi_diverse_100_scores.csv")
 
 selected_set = {tf for tf, _, _ in selected}
 removed = 0
