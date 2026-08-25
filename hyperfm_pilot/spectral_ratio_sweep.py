@@ -15,7 +15,7 @@ HSI_LIST = Path("hsi_diverse_20.txt")
 SCORES_CSV = Path("hsi_diverse_20_scores.csv")
 N_BANDS = 291
 RATIOS = [0.2, 0.4, 0.6, 0.8]
-N_TRIALS = 10
+N_TRIALS = 50
 ERRORMAP_DIR = Path("errormaps")
 ERRORMAP_DIR.mkdir(exist_ok=True)
 
