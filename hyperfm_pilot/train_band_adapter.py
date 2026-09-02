@@ -7,6 +7,17 @@ sample (pace_dataset.py) so one trained model generalizes across the full
 eval grid (20/40/60/80% x contiguous/scattered) instead of needing 8
 separately-trained models.
 
+LR schedule: linear warmup for --warmup_steps steps, then cosine decay to
+~0 across the remainder of training. Warmup matters especially here
+because hint_encoder's final layer is zero-initialized -- the very first
+updates are the model's first-ever "opinion" from an untrained state,
+computed off whatever single random tile/mask lands in step 0. Hitting
+that immediately with full LR risks overreacting to one noisy/hard
+example (visible in the pre-schedule run's step-1100 loss spike to
+0.173 against a ~0.005-0.02 neighborhood). Cosine decay lets the later
+epochs make small refinements instead of holding full-strength updates
+the whole run.
+
 Usage:
     python train_band_adapter.py --backbone 100M --epochs 5
     python train_band_adapter.py --backbone 600M --epochs 5 --lr 5e-5
@@ -19,6 +30,7 @@ than assuming it fits.
 """
 
 import argparse
+import math
 import sys
 import time
 from pathlib import Path
@@ -41,6 +53,16 @@ BACKBONE_SPECS = {
     "100M": dict(base_dir=Path.home() / "Prithvi" / "prithvi_100M", patch_size=16, embed_dim=768),
     "600M": dict(base_dir=Path.home() / "Prithvi" / "prithvi_600M", patch_size=14, embed_dim=1280),
 }
+
+
+def lr_lambda(step, warmup_steps, total_steps):
+    """Linear warmup (0 -> 1) then cosine decay (1 -> ~0). Returns a
+    multiplier applied to the base LR by torch's LambdaLR."""
+    if step < warmup_steps:
+        return step / max(1, warmup_steps)
+    progress = (step - warmup_steps) / max(1, total_steps - warmup_steps)
+    progress = min(1.0, progress)
+    return 0.5 * (1.0 + math.cos(math.pi * progress))
 
 
 def run_one_batch(model, enc_adapter, dec_adapter, batch, spec, device):
@@ -73,6 +95,8 @@ def main():
     parser.add_argument("--backbone", choices=["100M", "600M"], required=True)
     parser.add_argument("--epochs", type=int, default=5)
     parser.add_argument("--lr", type=float, default=1e-4)
+    parser.add_argument("--warmup_steps", type=int, default=500,
+                         help="linear LR warmup steps before cosine decay begins")
     parser.add_argument("--batch_size", type=int, default=1)
     parser.add_argument("--val_fraction", type=float, default=0.1)
     parser.add_argument("--eval_exclude_path", type=str, default="hsi_diverse_100.txt",
@@ -122,6 +146,13 @@ def main():
     train_loader = DataLoader(train_ds, batch_size=args.batch_size, shuffle=True)
     val_loader = DataLoader(val_ds, batch_size=args.batch_size, shuffle=False)
 
+    total_steps = args.epochs * len(train_loader)
+    scheduler = torch.optim.lr_scheduler.LambdaLR(
+        optimizer, lr_lambda=lambda step: lr_lambda(step, args.warmup_steps, total_steps)
+    )
+    print(f"LR schedule: warmup_steps={args.warmup_steps}, total_steps={total_steps}, "
+          f"base_lr={args.lr}")
+
     checkpoint_dir = (
         Path(args.checkpoint_dir) if args.checkpoint_dir
         else Path.home() / "Prithvi" / "hyperfm_pilot" / "checkpoints" / args.backbone
@@ -143,9 +174,12 @@ def main():
             loss, n_scored = run_one_batch(model, enc_adapter, dec_adapter, batch, spec, device)
             loss.backward()
             optimizer.step()
+            scheduler.step()
             train_losses.append(loss.item())
             if step % args.log_every == 0:
-                print(f"  epoch {epoch} step {step}/{len(train_loader)} loss={loss.item():.6f}")
+                current_lr = scheduler.get_last_lr()[0]
+                print(f"  epoch {epoch} step {step}/{len(train_loader)} loss={loss.item():.6f} "
+                      f"lr={current_lr:.2e}")
 
         mean_train_loss = sum(train_losses) / len(train_losses)
 
@@ -168,6 +202,7 @@ def main():
             "hint_encoder_state": enc_adapter.band_adapter.hint_encoder.state_dict(),
             "spectral_head_state": dec_adapter.spectral_head.state_dict(),
             "optimizer_state": optimizer.state_dict(),
+            "scheduler_state": scheduler.state_dict(),
             "train_loss": mean_train_loss,
             "val_loss": mean_val_loss,
         }
