@@ -13,3 +13,4 @@ hyperfm_pilot/sample_extract/
 hyperfm_pilot/figures/
 hyperfm_pilot/errormaps/
 hyperfm_pilot/candidate_tiles.txt
+hyperfm_pilot/errormaps_finetuned/
