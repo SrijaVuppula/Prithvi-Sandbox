@@ -17,7 +17,8 @@ from masked_reconstruction import apply_band_mask
 
 
 class PaceMaskedDataset(Dataset):
-    def __init__(self, tile_paths, target_size=112, mask_ratios=(0.2, 0.4, 0.6, 0.8),
+    def __init__(self, tile_paths, target_size=112,
+                 mask_ratios=(0.05, 0.1, 0.2, 0.4, 0.6, 0.8),
                  geometries=("contiguous", "scattered"), seed=None, deterministic=False):
         """
         deterministic=False (default, for training): masking draws from one
