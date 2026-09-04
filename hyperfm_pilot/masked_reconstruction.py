@@ -72,14 +72,22 @@ def unpatchify_bands(patchified, num_channels, patch_size, num_patches_h, num_pa
 def masked_reconstruction_loss(prediction, target, band_mask, valid_mask):
     """
     prediction, target: (B, 291, H, W)
-    band_mask: (291,) bool -- True = band was hidden from the model. Only
-               these bands are scored; visible bands aren't part of the task.
+    band_mask: (291,) bool for one mask shared across the whole batch, OR
+               (B, 291) bool for a per-sample mask (e.g. a training batch
+               where each item was independently masked with its own
+               random ratio/geometry -- see pace_dataset.py). Only these
+               bands are scored; visible bands aren't part of the task.
     valid_mask: (B, 291, H, W) bool -- True = real data (not NaN, not
                 padding). From pace_tile_loader.load_pace_tile.
 
     Returns: scalar MSE over (hidden bands) x (valid positions) only.
     """
-    band_mask_expanded = band_mask.view(1, -1, 1, 1).expand_as(target)
+    if band_mask.dim() == 1:
+        band_mask_expanded = band_mask.view(1, -1, 1, 1).expand_as(target)
+    elif band_mask.dim() == 2:
+        band_mask_expanded = band_mask.view(band_mask.shape[0], -1, 1, 1).expand_as(target)
+    else:
+        raise ValueError(f"band_mask must be 1D (291,) or 2D (B,291), got shape {tuple(band_mask.shape)}")
     score_mask = band_mask_expanded & valid_mask
     n_scored = score_mask.sum().item()
     if n_scored == 0:
