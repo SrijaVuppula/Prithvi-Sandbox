@@ -10,7 +10,8 @@ exploratory/*/outputs/*.csv
 hyperfm_pilot/*.tar
 hyperfm_pilot/cvpr_dataset
 hyperfm_pilot/sample_extract/
-hyperfm_pilot/figures/
-hyperfm_pilot/errormaps/
+hyperfm_pilot/results_zeroshot/figures_gt_recon/
+hyperfm_pilot/results_zeroshot/errormaps/
 hyperfm_pilot/candidate_tiles.txt
-hyperfm_pilot/errormaps_finetuned/
+hyperfm_pilot/results_finetuned/
+hyperfm_pilot/results_finetuned/*/spectral_error_profile.npz
