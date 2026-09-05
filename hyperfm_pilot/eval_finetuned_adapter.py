@@ -109,7 +109,7 @@ def main():
     ratios = [float(r) for r in args.ratios.split(",")]
     tile_files = [l.strip() for l in HSI_LIST.read_text().splitlines() if l.strip()]
 
-    errormap_dir = Path("errormaps_finetuned") / args.backbone
+    errormap_dir = Path("results_finetuned") / args.backbone / "errormaps"
     representative_tile = None
     if args.save_errormaps:
         errormap_dir.mkdir(parents=True, exist_ok=True)
@@ -163,7 +163,7 @@ def main():
                             err_map = err[0][band_mask].abs().mean(dim=0).detach().cpu().numpy()
                             np.save(errormap_dir / f"{geometry}_ratio{int(ratio*100)}.npy", err_map)
 
-    output_path = args.output or f"spectral_ratio_sweep_results_finetuned_{args.backbone}.csv"
+    output_path = args.output or f"results_finetuned/{args.backbone}/ratio_sweep_results.csv"
     with open(output_path, "w", newline="") as fh:
         w = csv.writer(fh)
         w.writerow(["tile", "mask_type", "ratio", "trial", "mae", "rmse", "psnr"])
