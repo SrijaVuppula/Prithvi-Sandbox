@@ -79,7 +79,7 @@ for name, spec in BACKBONE_SPECS.items():
     dec_adapter.zero_grad()
 
     placeholder = torch.zeros(1, 6, 1, 112, 112, device=device)
-    enc_adapter.set_pace_cube(masked_cube)  # model only ever sees the MASKED cube
+    enc_adapter.set_pace_cube(masked_cube, band_mask.unsqueeze(0))  # model only ever sees the MASKED cube + explicit occlusion mask
 
     try:
         run_masked_forward_trainable(
