@@ -73,7 +73,7 @@ def run_one_batch(model, enc_adapter, dec_adapter, batch, spec, device):
 
     B, _, H, W = masked_cube.shape
     placeholder = torch.zeros(B, 6, 1, H, W, device=device)
-    enc_adapter.set_pace_cube(masked_cube)
+    enc_adapter.set_pace_cube(masked_cube, band_mask)
 
     run_masked_forward_trainable(
         model, placeholder, temporal_coords=None, location_coords=None,
