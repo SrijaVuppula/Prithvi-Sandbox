@@ -140,7 +140,7 @@ def main():
                         )
 
                         placeholder = torch.zeros(1, 6, 1, H, W, device=device)
-                        enc_adapter.set_pace_cube(masked_cube)
+                        enc_adapter.set_pace_cube(masked_cube, band_mask.unsqueeze(0))
                         run_masked_forward_trainable(
                             model, placeholder, temporal_coords=None, location_coords=None,
                             mask_ratio=0.0, noise=None,
