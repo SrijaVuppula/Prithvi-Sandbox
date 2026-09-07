@@ -125,7 +125,7 @@ def main():
     gt_rgb = stretch_rgb(target_cube[0], vm2d)
 
     rng = np.random.default_rng(args.seed)
-    out_dir = Path("results_finetuned") / args.backbone / "errormaps"
+    out_dir = Path("results_finetuned") / args.backbone
 
     with torch.no_grad():
         for ratio in RATIOS:
@@ -135,7 +135,7 @@ def main():
                     rng=rng, num_bands=N_BANDS,
                 )
                 placeholder = torch.zeros(1, 6, 1, H, W, device=device)
-                enc_adapter.set_pace_cube(masked_cube)
+                enc_adapter.set_pace_cube(masked_cube, band_mask.unsqueeze(0))
                 run_masked_forward_trainable(
                     model, placeholder, temporal_coords=None, location_coords=None,
                     mask_ratio=0.0, noise=None,
@@ -151,15 +151,22 @@ def main():
                 err = (prediction - target_cube)[0][band_mask].abs().mean(dim=0).detach().cpu().numpy()
                 masked_idx = band_mask.nonzero(as_tuple=True)[0].cpu().numpy()
 
-                fig, axes = plt.subplots(1, 4, figsize=(20, 5),
-                                          gridspec_kw={"width_ratios": [1, 1, 1, 1.1]})
-                axes[0].imshow(gt_rgb); axes[0].set_title("Ground Truth"); axes[0].axis("off")
-                axes[1].imshow(recon_rgb); axes[1].set_title("Reconstructed"); axes[1].axis("off")
-                im = axes[2].imshow(err, cmap="inferno")
-                axes[2].set_title("Error (masked bands, |diff|)"); axes[2].axis("off")
-                fig.colorbar(im, ax=axes[2], fraction=0.046)
-                draw_band_strip(axes[3], masked_idx)
-                axes[3].set_title(f"masked bands (n={len(masked_idx)})")
+                fig = plt.figure(figsize=(15, 6))
+                gs = fig.add_gridspec(2, 3, height_ratios=[4, 1], hspace=0.3, wspace=0.05)
+
+                ax_gt = fig.add_subplot(gs[0, 0])
+                ax_recon = fig.add_subplot(gs[0, 1])
+                ax_err = fig.add_subplot(gs[0, 2])
+                ax_strip = fig.add_subplot(gs[1, :])
+
+                ax_gt.imshow(gt_rgb); ax_gt.set_title("Ground Truth"); ax_gt.axis("off")
+                ax_recon.imshow(recon_rgb); ax_recon.set_title("Reconstructed"); ax_recon.axis("off")
+                im = ax_err.imshow(err, cmap="inferno")
+                ax_err.set_title("Error (masked bands, |diff|)"); ax_err.axis("off")
+                fig.colorbar(im, ax=ax_err, fraction=0.046)
+
+                draw_band_strip(ax_strip, masked_idx)
+                ax_strip.set_title(f"masked bands (n={len(masked_idx)})", fontsize=10)
 
                 key = f"{geometry}_ratio{int(ratio*100)}"
                 fig.suptitle(f"{key} — {args.backbone}", fontsize=13)
