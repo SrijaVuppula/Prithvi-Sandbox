@@ -70,7 +70,7 @@ def run_forward(ratio, rng):
         target_cube, mask_ratio=ratio, geometry=GEOMETRY, rng=rng, num_bands=291,
     )
     placeholder = torch.zeros(1, 6, 1, H, W, device=device)
-    enc_adapter.set_pace_cube(masked_cube)
+    enc_adapter.set_pace_cube(masked_cube, band_mask.unsqueeze(0))
     with torch.no_grad():
         run_masked_forward_trainable(
             model, placeholder, temporal_coords=None, location_coords=None,
@@ -93,23 +93,30 @@ pred_80, mask_80 = run_forward(0.80, rng2)
 # --- Check 1: how different are the two predictions from each other? ---
 diff_between_predictions = (pred_05 - pred_80)[0][valid_mask[0]].abs().mean().item()
 
-# --- Check 2: how different is each prediction from ground truth? ---
-gt_diff_05 = (pred_05 - target_cube)[0][valid_mask[0]].abs().mean().item()
-gt_diff_80 = (pred_80 - target_cube)[0][valid_mask[0]].abs().mean().item()
+# --- Check 2: how different is each prediction from ground truth,
+#              restricted to the bands actually masked in that run? ---
+score_mask_05 = mask_05.view(-1, 1, 1).expand_as(valid_mask[0]) & valid_mask[0]
+score_mask_80 = mask_80.view(-1, 1, 1).expand_as(valid_mask[0]) & valid_mask[0]
+
+gt_diff_05 = (pred_05[0] - target_cube[0])[score_mask_05].abs().mean().item()
+gt_diff_80 = (pred_80[0] - target_cube[0])[score_mask_80].abs().mean().item()
 
 # --- Check 3: trivial baseline -- broadcast this tile's own per-band mean
-#              (computed from GROUND TRUTH's valid pixels) to every pixel ---
+#              (computed from GROUND TRUTH's valid pixels) to every pixel,
+#              scored over the same masked-band positions as each run ---
 per_band_mean = target_cube[0].masked_fill(~valid_mask[0], 0).sum(dim=(-1, -2)) / \
     valid_mask[0].sum(dim=(-1, -2)).clamp(min=1)
 baseline = per_band_mean.view(-1, 1, 1).expand_as(target_cube[0])
-baseline_diff = (baseline - target_cube[0])[valid_mask[0]].abs().mean().item()
+baseline_diff_05 = (baseline - target_cube[0])[score_mask_05].abs().mean().item()
+baseline_diff_80 = (baseline - target_cube[0])[score_mask_80].abs().mean().item()
 
 print(f"\nTile: {TILE}")
 print(f"Geometry: {GEOMETRY}\n")
-print(f"MAE(pred@5%masked, pred@80%masked) = {diff_between_predictions:.6f}   <- how much output changes with input")
-print(f"MAE(pred@5%masked,  ground truth)  = {gt_diff_05:.6f}")
-print(f"MAE(pred@80%masked, ground truth)  = {gt_diff_80:.6f}")
-print(f"MAE(trivial per-band-mean baseline, ground truth) = {baseline_diff:.6f}   <- 'model does nothing' baseline")
+print(f"MAE(pred@5%masked, pred@80%masked) = {diff_between_predictions:.6f}   <- how much output changes with input (full cube)")
+print(f"MAE(pred@5%masked,  ground truth)  [masked bands only] = {gt_diff_05:.6f}")
+print(f"MAE(pred@80%masked, ground truth)  [masked bands only] = {gt_diff_80:.6f}")
+print(f"MAE(trivial baseline, ground truth) @5%masked bands  = {baseline_diff_05:.6f}   <- 'model does nothing' baseline")
+print(f"MAE(trivial baseline, ground truth) @80%masked bands = {baseline_diff_80:.6f}   <- 'model does nothing' baseline")
 
 print("\n--- Interpretation ---")
 if diff_between_predictions < 0.3 * max(gt_diff_05, gt_diff_80):
@@ -117,10 +124,15 @@ if diff_between_predictions < 0.3 * max(gt_diff_05, gt_diff_80):
     print("-> Consistent with a collapsed / near-constant output (input insensitivity).")
 else:
     print("Prediction changes substantially with input.")
-    print("-> Model IS input-sensitive; the flat PSNR curve needs a different explanation.")
+    print("-> Model IS input-sensitive; check masked-band error trend below.")
 
-if abs(gt_diff_05 - baseline_diff) < 0.3 * baseline_diff and abs(gt_diff_80 - baseline_diff) < 0.3 * baseline_diff:
-    print("Model's error is close to the trivial per-band-mean baseline's error at BOTH ratios.")
-    print("-> Model isn't beating a naive constant-per-band guess by much.")
+if abs(gt_diff_05 - baseline_diff_05) < 0.3 * baseline_diff_05 and abs(gt_diff_80 - baseline_diff_80) < 0.3 * baseline_diff_80:
+    print("Model's masked-band error is close to the trivial per-band-mean baseline at BOTH ratios.")
+    print("-> Model isn't beating a naive constant-per-band guess by much on the hidden bands.")
 else:
-    print("Model's error differs meaningfully from the trivial baseline.")
+    print("Model's masked-band error differs meaningfully from the trivial baseline.")
+
+if gt_diff_80 - gt_diff_05 > 0.1 * gt_diff_05:
+    print("Masked-band error meaningfully worse at 80% than 5% -- ratio-sensitivity present.")
+else:
+    print("Masked-band error is flat between 5% and 80% -- ratio-sensitivity NOT present.")
