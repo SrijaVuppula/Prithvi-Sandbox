@@ -65,8 +65,9 @@ for name, spec in BACKBONE_SPECS.items():
     print("both adapters attached OK")
 
     pace_cube = torch.randn(1, 291, 224, 224, device=device)
+    band_mask = torch.zeros(1, 291, dtype=torch.bool, device=device)
     placeholder = torch.zeros(1, 6, 1, 224, 224, device=device)
-    enc_adapter.set_pace_cube(pace_cube)
+    enc_adapter.set_pace_cube(pace_cube, band_mask)
 
     try:
         result = run_masked_forward_trainable(
@@ -88,7 +89,8 @@ for name, spec in BACKBONE_SPECS.items():
     dec_adapter.zero_grad()
 
     pace_cube2 = torch.randn(1, 291, 224, 224, device=device)
-    enc_adapter.set_pace_cube(pace_cube2)
+    band_mask2 = torch.zeros(1, 291, dtype=torch.bool, device=device)
+    enc_adapter.set_pace_cube(pace_cube2, band_mask2)
     run_masked_forward_trainable(model, placeholder, temporal_coords=None, location_coords=None,
                                   mask_ratio=0.2, noise=None)
     loss = dec_adapter.last_output.sum()
