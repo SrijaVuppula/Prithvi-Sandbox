@@ -20,6 +20,7 @@ from controlnet_encoder_adapter import ControlNetEncoderAdapter  # noqa: E402
 from spectral_output_head import SpectralOutputAdapter  # noqa: E402
 from trainable_forward import run_masked_forward_trainable  # noqa: E402
 from pace_tile_loader import load_pace_tile, list_pace_tiles  # noqa: E402
+from masked_reconstruction import apply_band_mask  # noqa: E402
 
 BACKBONE_SPECS = {
     "100M": dict(base_dir=Path.home() / "Prithvi" / "prithvi_100M", patch_size=16, embed_dim=768),
@@ -65,7 +66,8 @@ for name, spec in BACKBONE_SPECS.items():
     print("both adapters attached OK")
 
     placeholder = torch.zeros(1, 6, 1, 112, 112, device=device)
-    enc_adapter.set_pace_cube(pace_cube)
+    masked_cube, band_mask = apply_band_mask(pace_cube, mask_ratio=0.2, geometry="contiguous")
+    enc_adapter.set_pace_cube(masked_cube, band_mask.unsqueeze(0))
 
     try:
         run_masked_forward_trainable(
@@ -94,7 +96,7 @@ for name, spec in BACKBONE_SPECS.items():
     model.zero_grad()
     enc_adapter.zero_grad()
     dec_adapter.zero_grad()
-    enc_adapter.set_pace_cube(pace_cube)
+    enc_adapter.set_pace_cube(masked_cube, band_mask.unsqueeze(0))
     run_masked_forward_trainable(model, placeholder, temporal_coords=None, location_coords=None,
                                   mask_ratio=0.2, noise=None)
     loss = dec_adapter.last_output.sum()
