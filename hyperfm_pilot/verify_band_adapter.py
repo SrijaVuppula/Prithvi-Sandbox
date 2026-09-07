@@ -104,7 +104,8 @@ for name, base_dir in BACKBONE_DIRS.items():
             patch_embed=patch_embed, embed_dim=embed_dim, patch_size=patch_size,
         ).to(device)
         dummy_pace = torch.randn(1, 291, 224, 224, device=device)
-        out = adapter(dummy_pace)
+        dummy_band_mask = torch.zeros(1, 291, dtype=torch.bool, device=device)
+        out = adapter(dummy_pace, dummy_band_mask)
         print(f"adapter(dummy_pace) OK -- output shape: {tuple(out.shape)}")
     except Exception as e:
         print(f"adapter(dummy_pace) FAILED: {type(e).__name__}: {e}")
