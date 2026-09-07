@@ -123,7 +123,7 @@ class SpectralHintEncoder(nn.Module):
                  hidden: int = 64, n_feature_layers: int = 2):
         super().__init__()
         layers = []
-        c_in = in_bands
+        c_in = in_bands * 2  # masked cube + explicit per-band occlusion mask, concatenated
         for _ in range(n_feature_layers):
             layers += [
                 nn.Conv2d(c_in, hidden, kernel_size=3, stride=1, padding=1),
@@ -142,12 +142,19 @@ class SpectralHintEncoder(nn.Module):
         nn.init.zeros_(self.zero_proj.weight)
         nn.init.zeros_(self.zero_proj.bias)
 
-    def forward(self, pace_cube):
+    def forward(self, pace_cube, band_mask):
         """
         pace_cube: (B, 291, H, W)
+        band_mask: (B, 291) bool, True = hidden band -- explicit occlusion
+        conditioning, concatenated as extra channels (broadcast spatially)
+        so the model is directly told which bands are occluded instead of
+        having to infer it from zero-filled values alone.
         returns: (B, embed_dim, H/patch_size, W/patch_size), all zeros at init.
         """
-        x = self.features(pace_cube)
+        B, C, H, W = pace_cube.shape
+        mask_channels = band_mask.to(pace_cube.dtype).view(B, C, 1, 1).expand(B, C, H, W)
+        x = torch.cat([pace_cube, mask_channels], dim=1)
+        x = self.features(x)
         x = self.downsample(x)
         return self.zero_proj(x)
 
@@ -190,9 +197,11 @@ class ControlNetBandAdapter(nn.Module):
             in_bands=in_bands, embed_dim=embed_dim, patch_size=patch_size
         )
 
-    def forward(self, pace_cube):
+    def forward(self, pace_cube, band_mask):
         """
         pace_cube: (B, 291, H, W) -- single-date PACE tile.
+        band_mask: (B, 291) bool, True = hidden band. Passed through to
+        the hint encoder as explicit conditioning -- see SpectralHintEncoder.
         returns tokens shaped to match whatever self.patch_embed normally emits.
         """
         hls_equivalent = pace_to_hls_equivalent(pace_cube, self.resampling_matrix)  # (B, 6, H, W)
@@ -202,7 +211,7 @@ class ControlNetBandAdapter(nn.Module):
         with torch.set_grad_enabled(frozen_grad_enabled):
             frozen_tokens = self.patch_embed(hls_equivalent)  # (B, N, embed_dim) or (B, embed_dim, h, w)
 
-        hint = self.hint_encoder(pace_cube)  # (B, embed_dim, h, w)
+        hint = self.hint_encoder(pace_cube, band_mask)  # (B, embed_dim, h, w)
 
         if frozen_tokens.dim() == 3:  # (B, N, embed_dim) -- already flattened
             hint = hint.flatten(2).transpose(1, 2)  # (B, N, embed_dim)
