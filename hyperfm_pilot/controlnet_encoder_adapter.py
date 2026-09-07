@@ -65,22 +65,25 @@ class ControlNetEncoderAdapter(nn.Module):
             in_bands=in_bands, pace_swir_centers_nm=pace_swir_centers_nm,
         )
         self._pace_cube = None
+        self._band_mask = None
         self._hook_handle = patch_embed.register_forward_hook(self._replace)
 
-    def set_pace_cube(self, pace_cube):
-        """pace_cube: (B, 291, H, W). Call before each forward pass that
-        invokes the wrapped patch_embed (e.g. each run_masked_forward call)."""
+    def set_pace_cube(self, pace_cube, band_mask):
+        """pace_cube: (B, 291, H, W). band_mask: (B, 291) bool, True=hidden.
+        Call before each forward pass that invokes the wrapped patch_embed
+        (e.g. each run_masked_forward call)."""
         self._pace_cube = pace_cube
+        self._band_mask = band_mask
 
     def _replace(self, module, inputs, output):
-        if self._pace_cube is None:
+        if self._pace_cube is None or self._band_mask is None:
             raise RuntimeError(
                 "ControlNetEncoderAdapter.set_pace_cube() must be called "
-                "before the encoder forward pass -- no PACE cube stashed."
+                "before the encoder forward pass -- no PACE cube/band_mask stashed."
             )
         self._hook_handle.remove()  # avoid recursion: band_adapter calls this same module
         try:
-            result = self.band_adapter(self._pace_cube)
+            result = self.band_adapter(self._pace_cube, self._band_mask)
         finally:
             self._hook_handle = module.register_forward_hook(self._replace)
         return result
