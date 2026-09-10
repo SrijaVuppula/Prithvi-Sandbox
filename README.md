@@ -1,6 +1,6 @@
 # Prithvi-Sandbox
 
-Experimental code for evaluating the **Prithvi EO 2.0** satellite-image foundation model (IBM/NASA) on **temporal gap filling** — reconstructing a missing time step in a multi-temporal satellite image sequence to simulate cloud removal.
+Experimental code for evaluating the **Prithvi EO 2.0** satellite-image foundation model (IBM/NASA) on **temporal gap filling** — reconstructing a missing time step in a multi-temporal satellite image sequence to simulate cloud removal..
 
 This repo contains the evaluation pipeline, masking utilities, and analysis scripts for a systematic study of the model under different masking conditions and backbone sizes.
 
