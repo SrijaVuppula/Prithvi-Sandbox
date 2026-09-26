@@ -15,3 +15,4 @@ hyperfm_pilot/results_zeroshot/errormaps/**/*.npy
 hyperfm_pilot/candidate_tiles.txt
 hyperfm_pilot/results_finetuned/**/*.npy
 hyperfm_pilot/results_finetuned/**/*.npz
+multi_tile_generalization/block_masking_study/checkpoints/
