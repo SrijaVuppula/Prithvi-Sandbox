@@ -83,7 +83,7 @@ def build_block_noise_mask(mask_ratio, patch_size=16, img_size=224,
     noise = _base_noise(total, rng)
     noise[masked_global] = 1.0
 
-    global_ratio = (len(masked_global) - 1e-9) / total
+    global_ratio = len(masked_global) / total
     return noise, global_ratio, masked_global
 
 
@@ -112,7 +112,7 @@ def build_random_noise_mask(mask_ratio, patch_size=16, img_size=224,
     noise = _base_noise(total, rng)
     noise[masked_global] = 1.0
 
-    global_ratio = (len(masked_global) - 1e-9) / total
+    global_ratio = len(masked_global) / total
     return noise, global_ratio, masked_global
 
 
