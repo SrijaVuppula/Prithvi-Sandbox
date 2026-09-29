@@ -1,14 +1,20 @@
 """
 plot_quality_per_compute.py
 ----------------------------
-Headline frontier figure: fine-tuned tiny (solid) vs zero-shot tiny (dashed,
-faint) vs zero-shot 100M (dashed) on block-masked PSNR. Annotated with the
-one-time fine-tuning energy cost and the fraction of the tiny->100M gap
-that fine-tuning closes at each ratio.
+Quality-per-compute figure: fine-tuned tiny (solid) vs zero-shot tiny (dashed) vs
+zero-shot 100M (dashed), contiguous-masked PSNR. Each dotted connector is annotated
+with the share of the tiny -> zero-shot-100M gap that fine-tuning closes.
 
-Reads outputs_finetuned/zeroshot_vs_finetuned_summary.csv
--> outputs_finetuned/figures/fig_quality_per_compute.png
+All values are medians over 500 chips (per-chip mean over 5 trials), read from
+outputs_finetuned/paper_stats.csv, so the annotations match the text and tables.
+One-time fine-tuning energy is read from outputs/finetune_logs/tiny_finetune_cost.csv.
+
+Single-column figure (3.35 in), paper fonts via ~/Prithvi/paper_style.py.
+
+-> outputs_finetuned/figures/fig_quality_per_compute.pdf  (LaTeX)
+   outputs_finetuned/figures/fig_quality_per_compute.png  (preview)
 """
+import os
 import sys
 from pathlib import Path
 import numpy as np
@@ -19,54 +25,67 @@ import matplotlib.pyplot as plt
 
 SCRIPT_DIR = Path(__file__).resolve().parent
 sys.path.insert(0, str(SCRIPT_DIR))
-from _style import get_style, RATIOS
+sys.path.insert(0, os.path.expanduser("~/Prithvi"))
+from _style import get_style                                   # noqa: E402
+from paper_style import apply_paper_style, PAPER_FONT, COL_W   # noqa: E402
 
-OUT_DIR = SCRIPT_DIR.parent / "outputs_finetuned"
+BASE = SCRIPT_DIR.parent
+OUT_DIR = BASE / "outputs_finetuned"
 FIG_DIR = OUT_DIR / "figures"
 FIG_DIR.mkdir(parents=True, exist_ok=True)
 
-apply_style, COLORS = get_style()
-apply_style()
+_, COLORS = get_style()
+apply_paper_style()
 
-df = pd.read_csv(OUT_DIR / "zeroshot_vs_finetuned_summary.csv")
-df["mask_ratio"] = df["mask_ratio"].astype(float)
-block = df[df["geometry"] == "block"]
+stats = pd.read_csv(OUT_DIR / "paper_stats.csv").sort_values(["backbone", "ratio"])
+tiny = stats[stats["backbone"] == "tiny"]
+m100 = stats[stats["backbone"] == "100M"]
+assert list(tiny["ratio"]) == list(m100["ratio"]) == [0.2, 0.4, 0.6, 0.8]
 
-tiny_zs = block[block["backbone"] == "tiny"].sort_values("mask_ratio")["zeroshot_mean_psnr"].values
-tiny_ft = block[block["backbone"] == "tiny"].sort_values("mask_ratio")["finetuned_mean_psnr"].values
-m100_zs = block[block["backbone"] == "100M"].sort_values("mask_ratio")["zeroshot_mean_psnr"].values
+x = (tiny["ratio"].values * 100).round().astype(int)
+tiny_zs = tiny["zs_contig_med"].values
+tiny_ft = tiny["ft_contig_med"].values
+m100_zs = m100["zs_contig_med"].values
 
-x = np.array([int(r * 100) for r in RATIOS])
+cost_kj = pd.read_csv(BASE / "outputs" / "finetune_logs" / "tiny_finetune_cost.csv")["energy_kj"].iloc[0]
+
+Y_LO, Y_HI = 30.0, 34.5
+assert min(tiny_zs.min(), tiny_ft.min()) > Y_LO and max(m100_zs.max(), tiny_ft.max()) < Y_HI
+
 c_tiny, c_100m = COLORS["tiny"], COLORS["100M"]
+F = PAPER_FONT
 
-fig, ax = plt.subplots(figsize=(8.0, 5.4))
+fig, ax = plt.subplots(figsize=(COL_W, 2.35))
 
 ax.plot(x, tiny_zs, color=c_tiny, ls="--", marker="o", mfc="white", mec=c_tiny,
-        ms=7, lw=1.6, alpha=0.8, label="tiny, zero-shot", zorder=3)
-ax.plot(x, tiny_ft, color=c_tiny, ls="-", marker="o", ms=7.5, lw=2.4,
-        label="tiny, fine-tuned (332.7 kJ)", zorder=5)
+        ms=3.5, lw=1.0, alpha=0.85, label="tiny, zero-shot", zorder=3)
+ax.plot(x, tiny_ft, color=c_tiny, ls="-", marker="o", ms=3.8, lw=1.7,
+        label=f"tiny, fine-tuned ({cost_kj:.0f} kJ one-time)", zorder=5)
 ax.plot(x, m100_zs, color=c_100m, ls="--", marker="s", mfc="white", mec=c_100m,
-        ms=7, lw=1.6, alpha=0.8, label="100M, zero-shot", zorder=4)
+        ms=3.5, lw=1.0, alpha=0.85, label="100M, zero-shot", zorder=4)
 
+pct = 100 * (tiny_ft - tiny_zs) / (m100_zs - tiny_zs)   # share of the tiny -> 100M gap closed
 for xi in range(len(x)):
-    total_gap = m100_zs[xi] - tiny_zs[xi]
-    remaining_gap = m100_zs[xi] - tiny_ft[xi]
-    pct_closed = 100 * (1 - remaining_gap / total_gap)
-    ax.annotate("", xy=(x[xi], tiny_ft[xi]), xytext=(x[xi], m100_zs[xi]),
-                arrowprops=dict(arrowstyle="-", color="0.6", lw=1.0, ls=":"))
-    ax.text(x[xi] + 1.5, (tiny_ft[xi] + m100_zs[xi]) / 2,
-            f"{pct_closed:.0f}% closed", fontsize=8, color="0.35", va="center")
+    ax.plot([x[xi], x[xi]], [tiny_ft[xi], m100_zs[xi]], color="0.6", lw=0.8, ls=":", zorder=2)
+    ax.text(x[xi] + 1.6, (tiny_ft[xi] + m100_zs[xi]) / 2, f"{pct[xi]:.0f}%",
+            fontsize=F["annot"], color="0.3", va="center", ha="left")
 
-ax.set_xlabel("Mask Ratio (%)")
-ax.set_ylabel("Block-masked PSNR (dB)")
+ax.set_xlabel("Mask ratio (%)")
+ax.set_ylabel("Contiguous PSNR (dB)")
 ax.set_xticks(x)
-ax.grid(alpha=0.22, lw=0.6)
+ax.set_xlim(15, 88)
+ax.set_ylim(Y_LO, Y_HI)
+ax.set_yticks(np.arange(30, 34.6, 1))
+ax.grid(alpha=0.25, lw=0.5)
 ax.set_axisbelow(True)
-ax.legend(loc="lower left", frameon=False, fontsize=9.5)
-ax.set_title("Fine-tuned tiny closes most of its quality gap to zero-shot 100M\n"
-             "at unchanged per-inference energy", fontsize=12, pad=12)
+ax.tick_params(length=2.5, width=0.5)
+for s in ax.spines.values():
+    s.set_linewidth(0.6)
+ax.legend(loc="lower left", frameon=False, fontsize=F["legend"], handlelength=2.0,
+          borderaxespad=0.3, labelspacing=0.3)
 
-fig.tight_layout()
-out = FIG_DIR / "fig_quality_per_compute.png"
-fig.savefig(out, bbox_inches="tight")
-print(f"Wrote {out}")
+fig.tight_layout(pad=0.3)
+for ext in ("pdf", "png"):
+    out = FIG_DIR / f"fig_quality_per_compute.{ext}"
+    fig.savefig(out, dpi=300)
+    print(f"Wrote {out}")
