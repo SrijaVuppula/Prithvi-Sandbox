@@ -1,0 +1,2 @@
+backbone,epochs,steps,elapsed_s,avg_power_w,energy_kj
+600M,20,40080,10769.0,346.71,3733.76
