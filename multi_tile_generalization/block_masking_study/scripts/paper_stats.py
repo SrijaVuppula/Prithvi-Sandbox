@@ -9,13 +9,14 @@ STUDY = Path(__file__).resolve().parent.parent
 BACKBONES = ["tiny", "100M", "300M", "600M"]
 KEYS = ["chip", "mask_ratio", "trial_seed"]
 rng = np.random.default_rng(0)
+rng2 = np.random.default_rng(1)  # separate stream so existing CIs are unchanged
 
 def load(p):
     return pd.read_csv(p, dtype={k: str for k in KEYS})
 
-def summarize(x):
+def summarize(x, r=None):
     n = len(x)
-    idx = rng.integers(0, n, (10000, n))
+    idx = (rng if r is None else r).integers(0, n, (10000, n))
     meds = np.median(x[idx], axis=1)
     lo, hi = np.percentile(meds, [2.5, 97.5])
     return round(float(np.median(x)), 3), round(float(lo), 3), round(float(hi), 3), round(float((x > 0).mean()), 3)
@@ -36,6 +37,7 @@ for bb in BACKBONES:
             "G_scattered": (g.random_psnr_ft - g.random_psnr_zs).values,
             "gap_zeroshot": (g.random_psnr_zs - g.block_psnr_zs).values,
             "gap_finetuned": (g.random_psnr_ft - g.block_psnr_ft).values,
+            "dgap": ((g.random_psnr_ft - g.random_psnr_zs) - (g.block_psnr_ft - g.block_psnr_zs)).values,
         }
         row = {"backbone": bb, "ratio": ratio,
                "zs_contig_med": round(g.block_psnr_zs.median(), 2),
@@ -43,7 +45,7 @@ for bb in BACKBONES:
                "zs_scatt_med": round(g.random_psnr_zs.median(), 2),
                "ft_scatt_med": round(g.random_psnr_ft.median(), 2)}
         for name, x in d.items():
-            med, lo, hi, pos = summarize(x)
+            med, lo, hi, pos = summarize(x, rng2 if name == "dgap" else None)
             row.update({f"{name}_med": med, f"{name}_lo": lo, f"{name}_hi": hi, f"{name}_pos": pos})
         rows.append(row)
 
