@@ -17,3 +17,5 @@ hyperfm_pilot/results_finetuned/**/*.npy
 hyperfm_pilot/results_finetuned/**/*.npz
 multi_tile_generalization/block_masking_study/checkpoints/
 mae_replay.log
+
+multi_tile_generalization/block_masking_study/outputs/seeds_run.log
