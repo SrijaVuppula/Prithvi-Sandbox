@@ -50,7 +50,7 @@ for b in BB:
             if BB.index(z) <= BB.index(b):
                 row.setdefault("note", "no saving (own/smaller zs qualifies)")
             else:
-                saved = Ez[(z, r)] - Ef[(b, r)]
+                saved = Ez[(z, r)] - Ez[(b, r)]
                 row["saved_pct_of_Ezs"] = round(100 * saved / Ez[(z, r)], 1)
                 if saved > 0.05 * Ez[(z, r)]:
                     row["N_star"] = f"{e_train_mJ / saved:,.0f}"
