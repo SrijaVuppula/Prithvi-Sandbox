@@ -19,3 +19,6 @@ multi_tile_generalization/block_masking_study/checkpoints/
 mae_replay.log
 
 multi_tile_generalization/block_masking_study/outputs/seeds_run.log
+
+multi_tile_generalization/block_masking_study/outputs/qualdist_run.log
+multi_tile_generalization/block_masking_study/outputs_finetuned/distance/*.npz
