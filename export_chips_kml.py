@@ -1,20 +1,22 @@
 """
-Export lat/long center coordinates for the verified 500-chip study set as a KML
+Export lat/long center coordinates for every chip in training_chips/ as a KML
 file, viewable in Google Earth / Google Maps.
 
-Chip set is read from results_600M.csv (the 'chip' column) rather than globbing
-the training_chips/ folder directly, since that folder contains 3083 chips total
-while the actual verified study used exactly 500.
+By default all *_merged.tif chips in the folder are exported (the full dataset).
+Pass --study-only to restrict to the 500-chip verified study set, read from the
+'chip' column of results_600M.csv.
 
 No acquisition date is included -- HLS chip filenames and the source HF dataset
 only carry a grid index (chip_ROW_COL), not per-frame dates.
 
 Usage (on cuda2, from repo root):
-    python3 export_chips_kml.py
+    python3 export_chips_kml.py              # full dataset
+    python3 export_chips_kml.py --study-only # 500-chip study set
 Output:
     chip_locations.kml
 """
 
+import argparse
 import csv
 import glob
 from pathlib import Path
@@ -46,16 +48,24 @@ def get_center_latlon(tif_path, transformer):
 
 
 def main():
-    study_ids = get_study_chip_ids()
-    print(f"Found {len(study_ids)} unique chips in {RESULTS_CSV}")
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--study-only", action="store_true",
+                        help="export only the chips listed in results_600M.csv")
+    args = parser.parse_args()
 
     all_merged_files = sorted(glob.glob(str(CHIPS_DIR / "*_merged.tif")))
-    merged_files = [f for f in all_merged_files if Path(f).name in study_ids]
-    print(f"Matched {len(merged_files)} of those to files on disk "
-          f"(out of {len(all_merged_files)} total *_merged.tif files present)")
+    if args.study_only:
+        study_ids = get_study_chip_ids()
+        print(f"Found {len(study_ids)} unique chips in {RESULTS_CSV}")
+        merged_files = [f for f in all_merged_files if Path(f).name in study_ids]
+        print(f"Matched {len(merged_files)} of those to files on disk "
+              f"(out of {len(all_merged_files)} total *_merged.tif files present)")
+    else:
+        merged_files = all_merged_files
+        print(f"Exporting all {len(merged_files)} *_merged.tif chips in {CHIPS_DIR}")
 
     if not merged_files:
-        raise SystemExit("No matching chip files found -- check RESULTS_CSV path/column name")
+        raise SystemExit("No matching chip files found -- check CHIPS_DIR / RESULTS_CSV")
 
     with rasterio.open(merged_files[0]) as src:
         src_crs = src.crs
@@ -77,7 +87,7 @@ def main():
     kml = f"""<?xml version="1.0" encoding="UTF-8"?>
 <kml xmlns="http://www.opengis.net/kml/2.2">
   <Document>
-    <name>Prithvi 500-Chip Locations</name>
+    <name>Prithvi Chip Locations ({len(placemarks)} chips)</name>
 {chr(10).join(placemarks)}
   </Document>
 </kml>
