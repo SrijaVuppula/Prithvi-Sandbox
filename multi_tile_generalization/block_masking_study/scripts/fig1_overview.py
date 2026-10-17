@@ -1,7 +1,8 @@
 """
 fig1_overview.py -- Figure 1 (full width, 7.0 in). Usage:  python fig1_overview.py [classic|viridis|plasma|all]
 
-(a) same fields in three seasons (schematic false-colour scene), summer frame masked, two geometries
+(a) one real evaluation chip (true colour, 2-98% stretch) in three seasons; summer frame masked with the
+    logged trial-0 masks at r = 40% (outputs_finetuned/distance/cchip_100M.npz), two geometries
 (b) quality vs. energy: zero-shot scaling curve, fine-tuning moves a model straight up (same energy)
 (c) fine-tuning gain G, both geometries
 Colour roles: hue = backbone size, hollow = zero-shot, filled = fine-tuned (palettes 'viridis'/'plasma');
@@ -9,6 +10,7 @@ Colour roles: hue = backbone size, hollow = zero-shot, filled = fine-tuned (pale
 All numbers: 10-seed means (DATA block printed by scripts/fig1_data_block.py).
 """
 import sys
+from pathlib import Path
 import numpy as np
 import matplotlib as mpl
 mpl.use("Agg")
@@ -57,25 +59,35 @@ PALETTES = {
                    pos="#159AA8", neg="#C23B75", shade=None, scene=cm_slice("plasma", 0.04, 0.96)),
 }
 
-# ------------------------------------------------------------------ schematic scene + masks
+# ------------------------------------------------------------------ real chip + logged masks
 N = 14
-def make_scene(n=N, px=8, nf=30, seed=11):
-    rng = np.random.default_rng(seed)
-    S = n * px
-    pts = rng.random((nf, 2)) * S
-    yy, xx = np.mgrid[0:S, 0:S]
-    fid = ((yy[..., None] - pts[:, 0]) ** 2 + (xx[..., None] - pts[:, 1]) ** 2).argmin(-1)
-    ctype = rng.choice(4, nf, p=[.25, .35, .25, .15])
-    jit = rng.normal(0, .07, (nf, 3))
-    Gs = np.array([[.80, .30, .06], [.10, .96, .40], [.55, .68, .44], [.08, .18, .10]])   # greenness: spring, summer, fall
-    noise = rng.normal(0, .035, (3, S, S))
-    return [np.clip(Gs[ctype[fid], k] + jit[fid, k] + noise[k], 0, 1) for k in range(3)]
+HERE = Path(__file__).resolve().parent
+STUDY = HERE.parent
+REPO = STUDY.parents[1]
+CHIP_NPZ = STUDY / "outputs_finetuned" / "distance" / "cchip_100M.npz"
+IMG, BANDS, T = 224, 6, 3
 
-def example_masks(seed=7, n=N, h=3, w=13):
-    rng = np.random.default_rng(seed)
-    cont = np.zeros((n, n), bool); cont[7:7 + h, 1:1 + w] = True
-    sc = np.zeros(n * n, bool); sc[rng.choice(n * n, cont.sum(), replace=False)] = True
-    return cont, sc.reshape(n, n)
+def load_real_chip():
+    """Three seasonal frames of the evaluation chip in true colour + its trial-0 patch masks (r = 40%)."""
+    import rasterio
+    z = np.load(CHIP_NPZ)
+    name, ps = str(z["chip"]), int(z["patch"])
+    cands = [REPO / "multi_tile_generalization" / "study_chips_500" / name,
+             REPO / "multi_tile_generalization" / "training_chips" / name]
+    tif = next((p for p in cands if p.exists()), None)
+    assert tif is not None, f"{name} not found in: " + ", ".join(map(str, cands))
+    with rasterio.open(tif) as src:
+        raw = src.read().astype(np.float64).reshape(T, BANDS, IMG, IMG) / 10000.0
+    assert np.allclose(np.clip(raw[1], 0, 1), z["gt"].astype(np.float64), atol=2e-3), "summer frame != cchip gt"
+    rgb = np.clip(raw[:, [2, 1, 0]], 0, 1)
+    lo, hi = np.percentile(rgb, [2, 98])
+    frames = [np.clip((rgb[k].transpose(1, 2, 0) - lo) / (hi - lo), 0, 1) for k in range(T)]
+    g = IMG // ps
+    to_grid = lambda m: m.reshape(g, ps, g, ps).any(axis=(1, 3))
+    cont, scat = to_grid(z["contiguous|mask"]), to_grid(z["scattered|mask"])
+    assert cont.shape == (N, N) and cont.sum() == scat.sum()
+    print(f"panel (a): {name}, {int(cont.sum())} of {N * N} summer patches masked")
+    return frames, cont, scat
 
 # ------------------------------------------------------------------ figure
 def build(name):
@@ -97,9 +109,8 @@ def build(name):
 
     # ============================================================ (a) seasons + masks
     PA_X, PA_W = 0.06, 2.10
-    banner(PA_X, 0.05, PA_W, "(a) Occlusion, r = 20%")
-    scene = make_scene()
-    cont, scat = example_masks()
+    banner(PA_X, 0.05, PA_W, "(a) Occlusion, r = 40%")
+    scene, cont, scat = load_real_chip()
     TS, GAP, X0 = 0.60, 0.045, PA_X + 0.26
     heads = ["Spring", "Summer (masked)", "Fall"]
     for k, hname in enumerate(heads):
@@ -110,7 +121,7 @@ def build(name):
         text(PA_X + 0.10, y0 + TS / 2, label, rotation=90, ha="center", va="center", fontsize=6.8, fontweight="bold", color=INK)
         for k in range(3):
             ax = ax_in(X0 + k * (TS + GAP), y0, TS, TS)
-            ax.imshow(P["scene"](scene[k]), extent=(0, N, 0, N), origin="upper", interpolation="nearest")
+            ax.imshow(scene[k], extent=(0, N, 0, N), origin="upper", interpolation="nearest")
             if k == 1:
                 for r in range(N):
                     for c in range(N):
@@ -122,10 +133,10 @@ def build(name):
             ax.set_xlim(0, N); ax.set_ylim(0, N); ax.set_aspect("equal"); ax.axis("off")
     yl = 0.49 + 2 * TS + 0.09 + 0.22
     rect(PA_X + 0.26, yl - 0.055, 0.11, 0.11, facecolor=P["mask"], edgecolor="#777777", linewidth=0.4)
-    text(PA_X + 0.26 + 0.16, yl, "hidden: 39 of 196 summer patches", ha="left", va="center", fontsize=6.6, color=INK)
+    text(PA_X + 0.26 + 0.16, yl, f"hidden: {int(cont.sum())} of {N * N} summer patches", ha="left", va="center", fontsize=6.6, color=INK)
     text(PA_X + 0.26, yl + 0.19, "spring and fall stay fully visible", ha="left", va="center", fontsize=6.4,
          style="italic", color="#555555")
-    text(PA_X + 0.26, yl + 0.40, "schematic scene; same fields, three seasons", ha="left", va="center", fontsize=6.0,
+    text(PA_X + 0.26, yl + 0.40, "real evaluation chip; HLS true colour", ha="left", va="center", fontsize=6.0,
          style="italic", color="#888888")
 
     # ============================================================ (b) quality vs energy
@@ -133,7 +144,7 @@ def build(name):
     banner(PB_X, 0.05, PB_W, "(b) Quality vs. energy, r = 40%")
     ax = ax_in(PB_X + 0.43, 0.40, PB_W - 0.50, 1.78)
     ax.set_xscale("log"); ax.set_xlim(1.35, 27); ax.set_ylim(30.85, 34.45)
-    ax.set_xticks([2, 5, 10, 20]); ax.set_xticklabels(["2", "5", "10", "20"]); ax.set_yticks([31, 32, 33, 34])
+    ax.set_xticks([2, 5, 10, 20]); ax.set_xticklabels(["2", "5", "10", "20"]); ax.xaxis.set_minor_formatter(mpl.ticker.NullFormatter()); ax.set_yticks([31, 32, 33, 34])
     for s in ("top", "right"):
         ax.spines[s].set_visible(False)
     ax.grid(axis="y", color="#DDDDDD", linewidth=0.5, linestyle=(0, (1, 2))); ax.set_axisbelow(True)
