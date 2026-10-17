@@ -21,7 +21,7 @@ from matplotlib.lines import Line2D
 from matplotlib.collections import LineCollection
 
 mpl.rcParams.update({
-    "font.family": "serif", "font.serif": ["Liberation Serif", "Times New Roman", "DejaVu Serif"],
+    "font.family": "serif", "font.serif": ["Liberation Serif", "Times New Roman", "STIXGeneral", "DejaVu Serif"],
     "mathtext.fontset": "stix", "pdf.fonttype": 42, "ps.fonttype": 42,
     "axes.linewidth": 0.6, "xtick.major.width": 0.6, "ytick.major.width": 0.6,
     "xtick.major.size": 2.5, "ytick.major.size": 2.5, "xtick.minor.size": 1.5, "xtick.minor.width": 0.4,
